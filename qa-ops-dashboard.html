@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Gifthealth · Daily Task Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+  // ====== FIREBASE CONFIG — REPLACE WITH YOUR OWN PROJECT'S VALUES ======
+  // Firebase Console > Project Settings > General > Your apps > Web app > SDK setup and configuration
+  const firebaseConfig = {
+    apiKey: "REPLACE_ME",
+    authDomain: "REPLACE_ME.firebaseapp.com",
+    projectId: "REPLACE_ME",
+    storageBucket: "REPLACE_ME.appspot.com",
+    messagingSenderId: "REPLACE_ME",
+    appId: "REPLACE_ME"
+  };
+</script>
+<style>
+  :root{
+    --purple:#440B39; --purple-xd:#2E0326; --beige:#FFF1EE;
+    --pink:#DC5AEE; --pink-lt:#F6AFFF; --orange:#FF764D; --orange-lt:#FFC5B9;
+    --blue:#A9F5FF; --blue-lt:#EAFDFF; --white:#FFFFFF; --ink:#2E0326;
+    --line:rgba(68,11,57,0.12); --shadow:0 8px 24px rgba(46,3,38,0.10);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--beige);color:var(--ink);font-family:"Inter",system-ui,sans-serif;}
+  h1,h2,h3{font-family:"Funnel Display","Inter",sans-serif;}
+  .app{display:flex;min-height:600px;}
+
+  .sidebar{width:220px;flex:none;background:linear-gradient(165deg,var(--purple) 0%, var(--purple-xd) 100%);color:var(--white);padding:24px 16px;display:flex;flex-direction:column;gap:6px;}
+  .brand{display:flex;flex-direction:column;gap:2px;margin-bottom:22px;padding:0 8px;}
+  .brand .eyebrow{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;opacity:0.65;font-weight:600;}
+  .brand .name{font-family:"Funnel Display";font-weight:800;font-size:20px;}
+  .nav-btn{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:transparent;border:none;color:rgba(255,255,255,0.78);font-weight:600;font-size:13.5px;cursor:pointer;text-align:left;}
+  .nav-btn svg{width:16px;height:16px;flex:none;opacity:.9;}
+  .nav-btn:hover{background:rgba(255,255,255,0.08);color:var(--white);}
+  .nav-btn.active{background:rgba(255,255,255,0.14);color:var(--white);}
+  .sidebar-foot{margin-top:auto;padding:10px 8px;font-size:11px;color:rgba(255,255,255,0.5);line-height:1.5;}
+
+  .main{flex:1;display:flex;flex-direction:column;min-width:0;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:18px 28px;background:var(--white);border-bottom:1px solid var(--line);}
+  .topbar h1{margin:0;font-size:20px;font-weight:700;}
+  .topbar .sub{font-size:12.5px;color:rgba(46,3,38,0.55);margin-top:2px;}
+  .top-actions{display:flex;gap:10px;align-items:center;}
+  .pill{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:var(--purple);background:var(--blue-lt);padding:6px 10px;border-radius:999px;}
+  .pill .dot{width:6px;height:6px;border-radius:50%;background:#2ecc71;}
+
+  .content{padding:26px 28px;overflow-y:auto;flex:1;}
+  .view{display:none;} .view.active{display:block;}
+
+  .btn{font-weight:700;font-size:13px;border-radius:9px;border:none;cursor:pointer;padding:9px 15px;display:inline-flex;align-items:center;gap:6px;}
+  .btn:active{transform:scale(0.97);}
+  .btn-primary{background:var(--purple);color:var(--white);}
+  .btn-ghost{background:var(--white);color:var(--purple);border:1px solid var(--line);}
+  .btn-ghost:hover{background:var(--blue-lt);}
+  .btn-sm{padding:5px 10px;font-size:12px;border-radius:7px;}
+
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:22px;}
+  .kpi{background:var(--white);border-radius:14px;padding:16px 18px;border:1px solid var(--line);display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden;}
+  .kpi::before{content:"";position:absolute;top:0;left:0;width:4px;height:100%;background:var(--accent,var(--purple));}
+  .kpi .label{font-size:11.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:rgba(46,3,38,0.55);}
+  .kpi .value{font-family:"Funnel Display";font-size:30px;font-weight:800;color:var(--purple);}
+  .kpi .delta{font-size:11.5px;font-weight:600;color:rgba(46,3,38,0.55);}
+
+  .charts-row{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-bottom:22px;}
+  .card{background:var(--white);border-radius:14px;padding:18px 20px;border:1px solid var(--line);}
+  .card h3{margin:0 0 12px;font-size:14.5px;font-weight:700;}
+  .card-chart-wrap{position:relative;height:230px;}
+
+  .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
+  .panel-head h2{margin:0;font-size:18px;font-weight:700;}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;}
+  select,input[type=text],input[type=date],input[type=datetime-local],textarea{
+    font-family:"Inter";font-size:12.5px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--white);color:var(--ink);
+  }
+
+  table{width:100%;border-collapse:collapse;font-size:12.8px;}
+  thead th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:rgba(46,3,38,0.55);padding:8px 10px;border-bottom:1px solid var(--line);font-weight:700;white-space:nowrap;}
+  tbody td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  tbody tr:hover{background:var(--blue-lt);}
+  .table-wrap{background:var(--white);border-radius:14px;border:1px solid var(--line);overflow:hidden;}
+  .table-scroll{overflow-x:auto;}
+
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap;}
+  .b-open{background:var(--orange-lt);color:#8a3a1c;}
+  .b-progress{background:var(--blue-lt);color:#1a6b78;}
+  .b-done{background:#E4F5E9;color:#1f7a44;}
+  .b-na{background:#eee;color:#777;}
+  .b-spike{background:#FFE1EC;color:#B3204D;}
+  .b-ok{background:#DCF3E3;color:#1f7a44;}
+
+  .icon-btn{background:none;border:none;cursor:pointer;color:var(--purple);opacity:0.7;padding:4px;font-size:13px;}
+  .icon-btn:hover{opacity:1;}
+
+  .overlay{position:fixed;inset:0;background:rgba(46,3,38,0.45);display:none;align-items:center;justify-content:center;z-index:50;padding:20px;}
+  .overlay.active{display:flex;}
+  .modal{background:var(--white);border-radius:16px;width:520px;max-width:100%;max-height:88vh;overflow-y:auto;padding:22px 24px;}
+  .modal h3{margin:0 0 16px;font-size:16px;}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .form-grid .full{grid-column:1/-1;}
+  .field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;color:rgba(46,3,38,0.6);margin-bottom:5px;}
+  .field select,.field input,.field textarea{width:100%;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
+
+  .empty{text-align:center;padding:50px 20px;color:rgba(46,3,38,0.5);}
+
+  /* Role modes */
+  .manager-only{}
+  body.mode-staff .manager-only{ display:none !important; }
+  .staff-signin-link{ display:inline-flex; }
+  body.mode-manager .staff-signin-link{ display:none; }
+  .manager-exit-link{ display:none; }
+  body.mode-manager .manager-exit-link{ display:inline-flex; }
+  .mode-pill{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:5px 10px;border-radius:999px;background:rgba(255,255,255,0.12);color:#fff;text-align:left;border:none;cursor:pointer;width:100%;}
+  .mode-pill:hover{background:rgba(255,255,255,0.2);}
+
+  .identity-bar{display:flex;align-items:center;gap:8px;background:var(--white);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:14px;font-size:12.5px;}
+  .identity-bar b{color:var(--purple);}
+  .identity-bar button{margin-left:auto;}
+  .cell-btn.locked{cursor:not-allowed;}
+  .cell-btn.locked .cell-fill{opacity:0.4;filter:grayscale(0.3);}
+
+  /* Weekly grid */
+  .view-toggle{display:flex;gap:4px;background:var(--white);border:1px solid var(--line);border-radius:9px;padding:3px;}
+  .view-toggle button{border:none;background:transparent;padding:6px 12px;font-size:12px;font-weight:700;border-radius:7px;cursor:pointer;color:var(--purple);}
+  .view-toggle button.active{background:var(--purple);color:var(--white);}
+  .week-nav{display:flex;align-items:center;gap:8px;}
+  .week-nav button{background:var(--white);border:1px solid var(--line);border-radius:7px;padding:5px 9px;cursor:pointer;color:var(--purple);font-weight:700;font-size:12px;}
+  .week-nav .label{font-size:12.5px;font-weight:700;color:var(--purple);white-space:nowrap;}
+  .grid-wrap{overflow-x:auto;background:var(--white);border-radius:14px;border:1px solid var(--line);}
+  table.week-table{border-collapse:collapse;width:100%;min-width:880px;table-layout:fixed;}
+  table.week-table th, table.week-table td{border:1px solid var(--line);}
+  table.week-table th.task-col, table.week-table td.task-col{
+    text-align:left;position:sticky;left:0;background:var(--white);z-index:2;width:190px;
+    font-size:12px;font-weight:600;padding:7px 10px;
+  }
+  table.week-table th.task-col{background:var(--purple);color:var(--white);z-index:3;}
+  table.week-table th.day-head{background:var(--purple);color:var(--white);font-size:11px;padding:8px 4px;letter-spacing:0.03em;}
+  table.week-table th.shift-head{font-size:10px;padding:4px;background:var(--beige);color:rgba(46,3,38,0.6);}
+  .day-odd{background:#FBF6F4;}
+  .day-even{background:var(--white);}
+  th.day-end, td.day-end{border-right:2px solid var(--purple);}
+  td.shift-cell{padding:3px;text-align:center;width:70px;vertical-align:middle;height:44px;}
+  .cell-btn{
+    width:100%;height:100%;min-height:38px;border:none;background:transparent;border-radius:6px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;padding:0;
+  }
+  .cell-btn.empty-cell{color:rgba(46,3,38,0.22);border:1px dashed rgba(68,11,57,0.18);font-size:15px;}
+  .cell-btn.empty-cell:hover{background:var(--blue-lt);color:var(--purple);border-color:var(--blue);}
+  .cell-fill{width:100%;height:100%;border-radius:6px;padding:4px 2px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;transition:filter .1s;}
+  .cell-btn:hover .cell-fill{filter:brightness(0.95);}
+  .cs-open{background:var(--orange-lt);}
+  .cs-progress{background:var(--blue-lt);}
+  .cs-done{background:#DCF3E3;}
+  .cs-na{background:#eee;}
+  .cell-fill .who{font-size:11px;font-weight:800;color:var(--purple);line-height:1.1;}
+  .cell-fill .st{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.02em;color:rgba(46,3,38,0.55);line-height:1.1;}
+  .grid-legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11px;color:rgba(46,3,38,0.6);margin:10px 2px 0;}
+  .grid-legend .lg-item{display:flex;align-items:center;gap:5px;}
+  .grid-legend .lg-dot{width:10px;height:10px;border-radius:3px;display:inline-block;}
+
+  .toast{position:fixed;bottom:22px;right:22px;background:var(--purple);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:var(--shadow);z-index:100;display:none;align-items:center;gap:8px;}
+  .toast.show{display:flex;animation:slideup .25s ease;}
+  @keyframes slideup{from{transform:translateY(8px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+
+  @media(max-width:900px){
+    .app{flex-direction:column;} .sidebar{width:100%;flex-direction:row;overflow-x:auto;padding:14px;} .brand{display:none;}
+    .kpi-grid{grid-template-columns:repeat(2,1fr);} .charts-row{grid-template-columns:1fr;} .form-grid{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body class="mode-staff">
+
+<div class="app">
+  <div class="sidebar">
+    <div class="brand"><div class="eyebrow">Gifthealth</div><div class="name">Daily Task Tracker</div></div>
+    <button class="nav-btn active manager-only" data-view="dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+      Dashboard
+    </button>
+    <button class="nav-btn" data-view="tasks">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M4 10h16"/><path d="m9 15 2 2 4-4"/></svg>
+      Daily Tasks
+    </button>
+    <button class="nav-btn manager-only" data-view="lunch">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      Lunch
+    </button>
+    <button class="nav-btn manager-only" data-view="team">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><circle cx="17" cy="8" r="3"/><path d="M17.5 14c2.5 0.3 4.5 2.5 4.5 6"/></svg>
+      Team
+    </button>
+    <div class="sidebar-foot" style="margin-top:auto;">
+      <button class="mode-pill staff-signin-link" id="managerSigninBtn">🔒 Manager sign-in</button>
+      <button class="mode-pill manager-exit-link" id="exitManagerBtn">↩ Exit manager view</button>
+      <div style="margin-top:8px;">Data is stored in Gifthealth's Firebase project and synced live to everyone using this link.</div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <div><h1 id="pageTitle">Dashboard</h1><div class="sub" id="pageSub">Daily task completion and volume</div></div>
+      <div class="top-actions">
+        <div class="view-toggle manager-only" id="periodToggle">
+          <button id="periodDailyBtn" class="active">Daily</button>
+          <button id="periodWeeklyBtn">Weekly</button>
+        </div>
+        <span class="pill"><span class="dot"></span> Synced to cloud</span>
+        <button class="btn btn-ghost btn-sm manager-only" id="resetBtn">Reset demo data</button>
+      </div>
+    </div>
+    <div class="content" id="content">
+
+      <!-- DASHBOARD -->
+      <div class="view active" id="view-dashboard">
+        <div class="kpi-grid">
+          <div class="kpi" style="--accent:var(--purple)"><div class="label" id="kpiTotalLabel">Tasks logged</div><div class="value" id="kpiTotal">0</div><div class="delta" id="kpiTotalDelta">&mdash;</div></div>
+          <div class="kpi" style="--accent:#1f7a44"><div class="label" id="kpiRateLabel">Completion rate</div><div class="value" id="kpiRate">0%</div><div class="delta" id="kpiRateDelta">&mdash;</div></div>
+          <div class="kpi" style="--accent:var(--blue)"><div class="label">Avg. processing time</div><div class="value" id="kpiAvgTime">&mdash;</div><div class="delta" id="kpiAvgTimeDelta">&mdash;</div></div>
+          <div class="kpi" style="--accent:var(--orange)"><div class="label" id="kpiVolumeLabel">Total volume (BestRx + Portal)</div><div class="value" id="kpiVolume">0</div><div class="delta" id="kpiVolumeDelta">&mdash;</div></div>
+        </div>
+        <div class="charts-row">
+          <div class="card"><h3>Tasks completed per day</h3><div class="card-chart-wrap"><canvas id="trendChart"></canvas></div></div>
+          <div class="card"><h3>Status breakdown</h3><div class="card-chart-wrap"><canvas id="statusChart"></canvas></div></div>
+        </div>
+        <div class="charts-row">
+          <div class="card"><h3>Avg. processing time by task (hrs)</h3><div class="card-chart-wrap" style="height:220px;"><canvas id="taskTimeChart"></canvas></div></div>
+          <div class="card"><h3>Volume by task (BestRx + Portal)</h3><div class="card-chart-wrap" style="height:220px;"><canvas id="volumeByTaskChart"></canvas></div></div>
+        </div>
+        <div class="charts-row" style="grid-template-columns:1fr;">
+          <div class="card">
+            <h3>Spike detection <span id="spikeSubtitle" style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);"></span></h3>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Task</th><th id="spikeColCurrent">Today</th><th id="spikeColBaseline">7-day avg</th><th>Change</th><th></th></tr></thead>
+                <tbody id="spikeBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DAILY TASKS -->
+      <div class="view" id="view-tasks">
+        <div class="panel-head">
+          <h2>Daily Tasks</h2>
+          <div class="filters">
+            <div class="view-toggle manager-only">
+              <button id="viewGridBtn" class="active">Week grid</button>
+              <button id="viewListBtn">List</button>
+            </div>
+            <button class="btn btn-ghost btn-sm manager-only" id="manageTasksBtn">Manage task list</button>
+            <button class="btn btn-ghost btn-sm manager-only" id="exportTasks">Export CSV</button>
+            <button class="btn btn-ghost btn-sm manager-only" id="startNewWeekBtn" style="color:#B3204D;border-color:rgba(179,32,77,0.25);">Start new week</button>
+            <button class="btn btn-ghost btn-sm manager-only" id="resetIdentityBtn">Reset this device's identity</button>
+            <button class="btn btn-primary btn-sm manager-only" id="addTaskEntryBtn">+ Add entry</button>
+          </div>
+        </div>
+
+        <!-- GRID VIEW -->
+        <div id="gridView">
+          <div class="identity-bar" id="identityBar" style="display:none;">
+            You are: <b id="currentStaffLabel">—</b>
+          </div>
+          <div class="panel-head" style="margin-bottom:10px;">
+            <div class="week-nav">
+              <button id="prevWeekBtn">‹</button>
+              <span class="label" id="weekLabel"></span>
+              <button id="nextWeekBtn">›</button>
+              <button class="btn btn-ghost btn-sm" id="thisWeekBtn" style="margin-left:6px;">This week</button>
+            </div>
+            <button class="btn btn-ghost btn-sm manager-only" id="generateWeekBtn">Generate this week's checklist</button>
+          </div>
+          <div class="grid-wrap"><table class="week-table" id="weekTable"></table></div>
+          <div class="grid-legend">
+            <span class="lg-item"><span class="lg-dot" style="background:var(--orange-lt);"></span> Not started</span>
+            <span class="lg-item"><span class="lg-dot" style="background:var(--blue-lt);"></span> In progress</span>
+            <span class="lg-item"><span class="lg-dot" style="background:#DCF3E3;"></span> Completed</span>
+            <span class="lg-item"><span class="lg-dot" style="background:#eee;"></span> N/A</span>
+            <span class="lg-item">Click a cell to start, complete, or edit it.</span>
+          </div>
+        </div>
+
+        <!-- LIST VIEW -->
+        <div id="listView" style="display:none;">
+          <div class="panel-head" style="margin-bottom:10px;">
+            <div class="filters">
+              <input type="date" id="taskDateFilter">
+              <select id="taskStatusFilter"><option value="">All statuses</option><option>Not Started</option><option>In Progress</option><option>Completed</option><option>N/A</option></select>
+              <button class="btn btn-ghost btn-sm" id="generateChecklistBtn">Generate today's checklist</button>
+            </div>
+          </div>
+          <div class="table-wrap"><div class="table-scroll">
+            <table>
+              <thead><tr>
+                <th>Date</th><th>Task</th><th>Shift</th><th>Agent</th><th>Status</th><th>Started</th><th>Completed</th><th>Proc. time</th><th>BestRx</th><th>Portal</th><th></th>
+              </tr></thead>
+              <tbody id="tasksBody"></tbody>
+            </table>
+          </div></div>
+        </div>
+      </div>
+
+      <!-- LUNCH -->
+      <div class="view" id="view-lunch">
+        <div class="panel-head">
+          <h2>Lunch Log</h2>
+          <div class="filters">
+            <input type="date" id="lunchDateFilter">
+            <button class="btn btn-ghost btn-sm" id="exportLunch">Export CSV</button>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:18px;">
+          <h3>Clock in / out</h3>
+          <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+            <div class="field" style="min-width:180px;"><label>Staff</label><input type="text" id="lunchAgentInput" list="agentSuggestions" placeholder="Type a name"></div>
+            <button class="btn btn-primary btn-sm" id="lunchOutBtn">Clock out for lunch</button>
+            <button class="btn btn-ghost btn-sm" id="lunchInBtn">Clock back in</button>
+          </div>
+        </div>
+        <div class="table-wrap"><div class="table-scroll">
+          <table>
+            <thead><tr><th>Date</th><th>Staff</th><th>Clocked out</th><th>Clocked in</th><th>Duration</th><th></th></tr></thead>
+            <tbody id="lunchBody"></tbody>
+          </table>
+        </div></div>
+      </div>
+
+      <!-- TEAM -->
+      <div class="view" id="view-team">
+        <div class="panel-head"><h2>Agent Breakdown</h2></div>
+        <div class="table-wrap" style="margin-bottom:22px;"><div class="table-scroll">
+          <table>
+            <thead><tr><th>Agent</th><th>Tasks completed</th><th>Avg. processing time</th><th>Total volume</th><th>Avg. lunch length</th></tr></thead>
+            <tbody id="agentBreakdownBody"></tbody>
+          </table>
+        </div></div>
+
+        <div class="panel-head">
+          <h2>Personal Dashboard</h2>
+          <div class="filters">
+            <select id="personalAgentSelect"><option value="">Choose a staff member…</option></select>
+          </div>
+        </div>
+        <div class="table-wrap"><div class="table-scroll">
+          <table>
+            <thead><tr><th>Task</th><th>Their avg. time</th><th>Team avg. time</th><th>Vs. team</th></tr></thead>
+            <tbody id="personalBody"></tbody>
+          </table>
+        </div></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay"><div class="modal" id="modalBody"></div></div>
+<div class="toast" id="toast"></div>
+<datalist id="agentSuggestions"></datalist>
+
+<script>
+/* ---------------- storage ---------------- */
+const KEYS = { taskTemplates:'task-templates-data', dailyTasks:'daily-tasks-data', lunchLog:'lunch-log-data' };
+let DB = { taskTemplates:[], dailyTasks:[], lunchLog:[] };
+
+const DEFAULT_TASK_TEMPLATES = [
+  'Review/ Dump CMM Shipped','Review/ Dump Arizona Shipped','NDP Bot Failed','Troubleshoot Bots',
+  'Inital Billing Bot failed/Queue','Inital Billing- Paid Unprocessed','PA Approved- Paid Unprocessed',
+  'Ldz Ghost Bot Failed/ Queue','Intake Error Report','Ldz Bridge Bot Failed','Ldz Cashed out Bot Failed',
+  'Arizona Bot Failed','Paid unclaimed bot failed/ Queue','PA Approved Bot failed/ Queue','IB Manual Queue',
+  'Conflicting Rx Report','Review/Dump Pv1 Queue'
+];
+
+function uid(){ return Math.random().toString(36).slice(2,9); }
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+function fmtDate(d){ if(!d) return '—'; const dt=new Date(d+'T00:00:00'); return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+function fmtDT(v){ if(!v) return '—'; const d=new Date(v.length<=16?v+':00':v); return d.toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function addDays(dateStr,n){ const d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+function addMinutesISO(iso,min){ const d=new Date(iso.length<=16?iso+':00':iso); d.setMinutes(d.getMinutes()+min); return d.toISOString().slice(0,16); }
+function nowLocalInput(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); }
+function computeTaskDuration(startedAt,completedAt){
+  if(!startedAt || !completedAt) return '';
+  const ms = new Date(completedAt.length<=16?completedAt+':00':completedAt) - new Date(startedAt.length<=16?startedAt+':00':startedAt);
+  return ms>0 ? +(ms/3600000).toFixed(2) : '';
+}
+
+const FIRESTORE_COLLECTION = 'gifthealth-task-tracker';
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+let suppressSnapshotRerender = false;
+
+async function loadAll(){
+  for(const k of Object.keys(KEYS)){
+    try{
+      const doc = await db.collection(FIRESTORE_COLLECTION).doc(KEYS[k]).get();
+      DB[k] = doc.exists && doc.data().items ? doc.data().items : [];
+    }catch(e){ console.error('load failed', k, e); DB[k] = []; }
+  }
+  if(!DB.taskTemplates || DB.taskTemplates.length===0){
+    seedDemoData();
+    await saveAll();
+  }
+  attachLiveSync();
+}
+async function saveAll(){ for(const k of Object.keys(KEYS)){ await saveOne(k); } }
+async function saveOne(k){
+  try{
+    suppressSnapshotRerender = true;
+    await db.collection(FIRESTORE_COLLECTION).doc(KEYS[k]).set({ items: DB[k] });
+  }catch(e){ console.error('save failed', k, e); toast('Could not save — check your connection'); }
+  finally{ setTimeout(()=>{ suppressSnapshotRerender = false; }, 300); }
+}
+
+function attachLiveSync(){
+  Object.keys(KEYS).forEach(k=>{
+    db.collection(FIRESTORE_COLLECTION).doc(KEYS[k]).onSnapshot(doc=>{
+      if(suppressSnapshotRerender) return; // ignore the echo of our own write
+      if(!doc.exists) return;
+      DB[k] = doc.data().items || [];
+      refreshAgentSuggestions();
+      renderWeekGrid(); renderDailyTasks(); renderDashboard(); renderLunch(); renderTeam();
+    }, err=>console.error('sync error', k, err));
+  });
+}
+
+function seedDemoData(){
+  DB.taskTemplates = DEFAULT_TASK_TEMPLATES.map(name=>({id:uid(), name}));
+  DB.dailyTasks = [];
+  const agents = ['Rachel','Olivia','Aamari','Kayla'];
+  for(let i=9;i>=0;i--){
+    const date = addDays(todayStr(), -i);
+    DEFAULT_TASK_TEMPLATES.slice(0,10).forEach(task=>{
+      ['AM','PM'].forEach(shift=>{
+        if(Math.random() < 0.15){ return; } // some days a task has no entry
+        const agent = agents[Math.floor(Math.random()*agents.length)];
+        const startHour = shift==='AM' ? 9 : 13;
+        const startedAt = date+'T'+String(startHour).padStart(2,'0')+':'+String(Math.floor(Math.random()*50)).padStart(2,'0');
+        const roll = Math.random();
+        let status, completedAt='', bestRx='', portal='', processingHrs='';
+        if(roll < 0.72){
+          status='Completed';
+          const hrs = +(Math.random()*3+0.05).toFixed(2);
+          completedAt = addMinutesISO(startedAt, Math.round(hrs*60));
+          processingHrs = hrs;
+          bestRx = Math.floor(Math.random()*35);
+          portal = Math.floor(Math.random()*15);
+        } else if(roll < 0.88){ status='In Progress'; }
+        else { status='Not Started'; }
+        DB.dailyTasks.push({
+          id:uid(), date, task, shift, agent, status,
+          startedBy: status==='Not Started'?'':agent, startedAt: status==='Not Started'?'':startedAt,
+          completedBy: status==='Completed'?agent:'', completedAt, processingHrs,
+          bestRx, portal, notes:''
+        });
+      });
+    });
+  }
+  DB.lunchLog = [];
+  for(let i=9;i>=0;i--){
+    const date = addDays(todayStr(), -i);
+    agents.forEach(agent=>{
+      if(Math.random()<0.1) return;
+      const outH = 11+Math.floor(Math.random()*2), outM = Math.floor(Math.random()*60);
+      const clockOutAt = date+'T'+String(outH).padStart(2,'0')+':'+String(outM).padStart(2,'0');
+      const dur = 25+Math.floor(Math.random()*20);
+      const clockInAt = addMinutesISO(clockOutAt, dur);
+      DB.lunchLog.push({id:uid(), date, staff:agent, clockOutAt, clockInAt, durationMin:dur});
+    });
+  }
+}
+
+/* ---------------- nav ---------------- */
+const titles = {
+  dashboard:['Dashboard','Daily task completion and volume'],
+  tasks:['Daily Tasks',"Recurring bot/queue tasks — start, complete, and log BestRx/Portal volume"],
+  lunch:['Lunch','Clock out and back in, track lunch duration by staff'],
+  team:['Team','Agent breakdown and personal performance view']
+};
+document.querySelectorAll('.nav-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const v = btn.dataset.view;
+    document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
+    document.getElementById('view-'+v).classList.add('active');
+    document.getElementById('pageTitle').textContent = titles[v][0];
+    document.getElementById('pageSub').textContent = titles[v][1];
+    if(v==='dashboard') renderDashboard();
+    if(v==='tasks'){ renderWeekGrid(); renderDailyTasks(); }
+    if(v==='lunch') renderLunch();
+    if(v==='team') renderTeam();
+  });
+});
+
+/* ---------------- badges ---------------- */
+function taskStatusBadge(s){
+  const cls = s==='Completed'?'b-done':s==='In Progress'?'b-progress':s==='N/A'?'b-na':'b-open';
+  return `<span class="badge ${cls}">${s}</span>`;
+}
+
+/* ---------------- agent suggestions ---------------- */
+function refreshAgentSuggestions(){
+  const names = [...new Set([...DB.dailyTasks.map(t=>t.agent), ...DB.lunchLog.map(l=>l.staff)].filter(Boolean))].sort();
+  document.getElementById('agentSuggestions').innerHTML = names.map(n=>`<option value="${n}">`).join('');
+}
+
+/* ---------------- lunch log ---------------- */
+function renderLunch(){
+  const dateF = document.getElementById('lunchDateFilter').value;
+  const rows = DB.lunchLog.filter(l=>!dateF || l.date===dateF).sort((a,b)=>b.date.localeCompare(a.date));
+  const body = document.getElementById('lunchBody');
+  if(rows.length===0){ body.innerHTML = `<tr><td colspan="6"><div class="empty">No lunch entries for this filter.</div></td></tr>`; return; }
+  body.innerHTML = rows.map(l=>`
+    <tr>
+      <td>${fmtDate(l.date)}</td>
+      <td>${l.staff}</td>
+      <td>${fmtDT(l.clockOutAt)}</td>
+      <td>${l.clockInAt ? fmtDT(l.clockInAt) : '<em>Still out</em>'}</td>
+      <td>${l.durationMin!=null && l.durationMin!=='' ? l.durationMin+' min' : '—'}</td>
+      <td><button class="icon-btn" title="Delete" onclick="deleteLunch('${l.id}')">✕</button></td>
+    </tr>`).join('');
+}
+async function deleteLunch(id){
+  if(!confirm('Delete this lunch entry?')) return;
+  DB.lunchLog = DB.lunchLog.filter(l=>l.id!==id);
+  await saveOne('lunchLog'); renderLunch(); toast('Deleted');
+}
+window.deleteLunch = deleteLunch;
+
+document.getElementById('lunchOutBtn').onclick = async ()=>{
+  const staff = document.getElementById('lunchAgentInput').value.trim();
+  if(!staff){ toast('Enter a staff name first'); return; }
+  const today = todayStr();
+  const openEntry = DB.lunchLog.find(l=>l.staff===staff && l.date===today && !l.clockInAt);
+  if(openEntry){ toast(`${staff} is already clocked out for lunch`); return; }
+  DB.lunchLog.push({id:uid(), date:today, staff, clockOutAt:nowLocalInput(), clockInAt:'', durationMin:''});
+  await saveOne('lunchLog'); renderLunch(); refreshAgentSuggestions(); toast(`${staff} clocked out for lunch`);
+};
+document.getElementById('lunchInBtn').onclick = async ()=>{
+  const staff = document.getElementById('lunchAgentInput').value.trim();
+  if(!staff){ toast('Enter a staff name first'); return; }
+  const today = todayStr();
+  const openEntry = DB.lunchLog.find(l=>l.staff===staff && l.date===today && !l.clockInAt);
+  if(!openEntry){ toast(`${staff} isn't clocked out for lunch`); return; }
+  openEntry.clockInAt = nowLocalInput();
+  openEntry.durationMin = Math.round((new Date(openEntry.clockInAt) - new Date(openEntry.clockOutAt))/60000);
+  await saveOne('lunchLog'); renderLunch(); toast(`${staff} clocked back in`);
+};
+document.getElementById('lunchDateFilter').onchange = renderLunch;
+document.getElementById('exportLunch').onclick = ()=>{
+  const csv = toCSV(DB.lunchLog, [
+    {label:'Date', get:r=>r.date},{label:'Staff', get:r=>r.staff},{label:'Clocked Out', get:r=>r.clockOutAt},
+    {label:'Clocked In', get:r=>r.clockInAt},{label:'Duration (min)', get:r=>r.durationMin}
+  ]);
+  downloadCSV(csv, 'gifthealth_lunch_log.csv'); toast('CSV downloaded');
+};
+
+/* ---------------- daily tasks render ---------------- */
+function renderDailyTasks(){
+  const dateF = document.getElementById('taskDateFilter').value;
+  const statusF = document.getElementById('taskStatusFilter').value;
+  const rows = DB.dailyTasks.filter(t=> (!dateF || t.date===dateF) && (!statusF || t.status===statusF) )
+    .sort((a,b)=> (b.date+b.shift).localeCompare(a.date+a.shift));
+  const body = document.getElementById('tasksBody');
+  if(rows.length===0){ body.innerHTML = `<tr><td colspan="11"><div class="empty">No task entries for this filter. Try "Generate today's checklist".</div></td></tr>`; return; }
+  body.innerHTML = rows.map(t=>`
+    <tr>
+      <td>${fmtDate(t.date)}</td>
+      <td>${t.task}</td>
+      <td>${t.shift}</td>
+      <td>${t.agent||'—'}</td>
+      <td>${taskStatusBadge(t.status)}</td>
+      <td>${fmtDT(t.startedAt)}</td>
+      <td>${fmtDT(t.completedAt)}</td>
+      <td>${t.processingHrs!==''&&t.processingHrs!=null ? t.processingHrs+'h' : '—'}</td>
+      <td>${t.bestRx!==''&&t.bestRx!=null ? t.bestRx : '—'}</td>
+      <td>${t.portal!==''&&t.portal!=null ? t.portal : '—'}</td>
+      <td style="white-space:nowrap;">
+        ${t.status==='Not Started' ? `<button class="icon-btn" title="Start" onclick="startTask('${t.id}')">▶</button>` : ''}
+        ${(t.status==='Not Started'||t.status==='In Progress') ? `<button class="icon-btn" title="Complete" onclick="openCompleteModal('${t.id}')">✓</button>` : ''}
+        <button class="icon-btn" title="Edit" onclick="openTaskEntryModal(DB.dailyTasks.find(x=>x.id==='${t.id}'))">✎</button>
+        <button class="icon-btn" title="Delete" onclick="deleteTask('${t.id}')">✕</button>
+      </td>
+    </tr>`).join('');
+}
+
+/* ---------------- week grid ---------------- */
+function getMonday(dateStr){
+  const d = new Date(dateStr+'T00:00:00');
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const diff = day===0 ? -6 : 1-day;
+  d.setDate(d.getDate()+diff);
+  return d.toISOString().slice(0,10);
+}
+let currentWeekStart = getMonday(todayStr());
+let dashPeriod = 'daily'; // 'daily' | 'weekly'
+let appMode = 'staff'; // 'staff' | 'manager'
+let currentStaffName = '';
+const MANAGER_PIN = '4242'; // simple soft gate — not real security, just keeps casual taps out
+
+function updateIdentityBar(){
+  const bar = document.getElementById('identityBar');
+  if(appMode!=='staff'){ bar.style.display='none'; return; }
+  bar.style.display = 'flex';
+  document.getElementById('currentStaffLabel').textContent = currentStaffName || 'not set';
+}
+
+function openIdentityModal(){
+  const names = [...new Set([...DB.dailyTasks.map(t=>t.agent), ...DB.lunchLog.map(l=>l.staff)].filter(Boolean))].sort();
+  modalBody.innerHTML = `
+    <h3>Who are you?</h3>
+    <div class="field full" style="margin-bottom:14px;">
+      <label>Your name</label>
+      <input type="text" id="f_myName" list="agentSuggestions" placeholder="Type your name" value="${escAttr(currentStaffName)}">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="saveIdentityBtn">Continue</button>
+    </div>`;
+  overlay.classList.add('active');
+  setTimeout(()=>document.getElementById('f_myName').focus(), 50);
+  document.getElementById('saveIdentityBtn').onclick = async ()=>{
+    const name = document.getElementById('f_myName').value.trim();
+    if(!name){ toast('Enter your name first'); return; }
+    currentStaffName = name;
+    try{ localStorage.setItem('my-staff-name', name); }catch(e){}
+    updateIdentityBar();
+    closeModal();
+    renderWeekGrid();
+    toast(`You're set as ${name}`);
+  };
+}
+
+function setMode(mode){
+  appMode = mode;
+  document.body.classList.remove('mode-staff','mode-manager');
+  document.body.classList.add('mode-'+mode);
+  if(mode==='staff'){
+    document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelector('.nav-btn[data-view="tasks"]').classList.add('active');
+    document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
+    document.getElementById('view-tasks').classList.add('active');
+    document.getElementById('pageTitle').textContent = titles.tasks[0];
+    document.getElementById('pageSub').textContent = titles.tasks[1];
+    document.getElementById('viewGridBtn').classList.add('active');
+    document.getElementById('viewListBtn').classList.remove('active');
+    document.getElementById('gridView').style.display = '';
+    document.getElementById('listView').style.display = 'none';
+  }
+  updateIdentityBar();
+  renderWeekGrid();
+  if(mode==='staff' && !currentStaffName){ openIdentityModal(); }
+}
+document.getElementById('managerSigninBtn').onclick = ()=>{
+  const pin = prompt('Enter manager PIN:');
+  if(pin===null) return;
+  if(pin===MANAGER_PIN){ setMode('manager'); toast('Manager view unlocked'); }
+  else toast('Incorrect PIN');
+};
+document.getElementById('exitManagerBtn').onclick = ()=>{ setMode('staff'); toast('Back to staff view'); };
+document.getElementById('resetIdentityBtn').onclick = async ()=>{
+  if(!confirm("Reset this device's identity? The next person to use Daily Tasks on this device/session will be asked to enter their name again.")) return;
+  currentStaffName = '';
+  try{ localStorage.removeItem('my-staff-name'); }catch(e){}
+  updateIdentityBar();
+  toast('Device identity cleared');
+};
+const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri'];
+
+function weekDates(){ return [0,1,2,3,4].map(i=>addDays(currentWeekStart,i)); }
+
+function updateWeekLabel(){
+  const dates = weekDates();
+  const fmt = d=>{ const dt=new Date(d+'T00:00:00'); return (dt.getMonth()+1)+'/'+dt.getDate(); };
+  document.getElementById('weekLabel').textContent = `Week of ${fmt(dates[0])} – ${fmt(dates[4])}`;
+}
+
+function initialsOf(name){ if(!name) return ''; return name.split(' ').map(p=>p[0]).slice(0,2).join('').toUpperCase(); }
+
+function renderWeekGrid(){
+  updateWeekLabel();
+  const dates = weekDates();
+  const table = document.getElementById('weekTable');
+  if(DB.taskTemplates.length===0){
+    table.innerHTML = `<tr><td><div class="empty">No tasks in your task list yet. Use "Manage task list" to add some.</div></td></tr>`;
+    return;
+  }
+  let thead = '<tr><th class="task-col" rowspan="2">Task</th>';
+  dates.forEach((d,i)=>{
+    const dt = new Date(d+'T00:00:00');
+    const parity = i%2===0?'even':'odd';
+    thead += `<th class="day-head ${parity}" colspan="2">${DAY_NAMES[i]} ${dt.getMonth()+1}/${dt.getDate()}</th>`;
+  });
+  thead += '</tr><tr>';
+  dates.forEach((d,i)=>{
+    const parity = i%2===0?'even':'odd';
+    thead += `<th class="shift-head ${parity}">AM</th><th class="shift-head ${parity} day-end">PM</th>`;
+  });
+  thead += '</tr>';
+
+  let rows = '';
+  DB.taskTemplates.forEach(tt=>{
+    rows += `<tr><td class="task-col">${tt.name}</td>`;
+    dates.forEach((d,i)=>{
+      const parity = i%2===0?'day-even':'day-odd';
+      ['AM','PM'].forEach(shift=>{
+        const endCls = shift==='PM' ? ' day-end' : '';
+        rows += `<td class="shift-cell ${parity}${endCls}">${cellHTML(d, tt.name, shift)}</td>`;
+      });
+    });
+    rows += '</tr>';
+  });
+  table.innerHTML = thead + rows;
+}
+
+function escAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+function cellHTML(date, task, shift){
+  const entry = DB.dailyTasks.find(t=>t.date===date && t.task===task && t.shift===shift);
+  if(!entry){
+    if(appMode==='staff'){
+      return `<div class="cell-btn empty-cell" style="cursor:default;">·</div>`;
+    }
+    return `<button class="cell-btn empty-cell" title="Add entry" data-date="${escAttr(date)}" data-task="${escAttr(task)}" data-shift="${escAttr(shift)}">+</button>`;
+  }
+  const cls = entry.status==='Completed'?'cs-done':entry.status==='In Progress'?'cs-progress':entry.status==='N/A'?'cs-na':'cs-open';
+  const shortStatus = entry.status==='In Progress'?'IP':entry.status==='Not Started'?'NS':entry.status==='Completed'?'Done':'N/A';
+  const who = entry.agent ? initialsOf(entry.agent) : shortStatus;
+  const isOthers = appMode==='staff' && entry.agent && currentStaffName && entry.agent!==currentStaffName;
+  const hint = appMode==='staff'
+    ? (isOthers ? `Assigned to ${entry.agent} — not yours` : entry.status==='Not Started' ? 'Tap to start' : entry.status==='In Progress' ? 'Tap to mark complete' : entry.status)
+    : entry.status;
+  return `<button class="cell-btn${isOthers?' locked':''}" title="${escAttr(entry.task+' · '+hint)}" data-entry-id="${entry.id}">
+    <div class="cell-fill ${cls}">
+      <span class="who">${isOthers?'🔒':who}</span>
+      ${entry.agent ? `<span class="st">${shortStatus}</span>` : ''}
+    </div>
+  </button>`;
+}
+function openGridCell(id){
+  const t = DB.dailyTasks.find(x=>x.id===id); if(!t) return;
+  modalBody.innerHTML = `
+    <h3>${t.task} <span style="font-size:12px;color:rgba(46,3,38,0.55);font-weight:600;">· ${t.shift} · ${fmtDate(t.date)}</span></h3>
+    <div style="margin-bottom:16px;">${taskStatusBadge(t.status)} ${t.agent ? `<span style="font-size:12.5px;color:rgba(46,3,38,0.6);margin-left:8px;">Assigned to ${t.agent}</span>` : ''}</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${t.status==='Not Started' ? `<button class="btn btn-primary" id="qaStart">▶ Start task</button>` : ''}
+      ${(t.status==='Not Started'||t.status==='In Progress') ? `<button class="btn btn-primary" id="qaComplete" style="background:#1f7a44;">✓ Mark complete</button>` : ''}
+      <button class="btn btn-ghost" id="qaEdit">✎ Edit details</button>
+      <button class="btn btn-ghost" id="qaDelete" style="color:#B3204D;">✕ Delete entry</button>
+    </div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>`;
+  overlay.classList.add('active');
+  const startBtn = document.getElementById('qaStart');
+  if(startBtn) startBtn.onclick = async ()=>{ closeModal(); await startTask(id); renderWeekGrid(); };
+  const completeBtn = document.getElementById('qaComplete');
+  if(completeBtn) completeBtn.onclick = ()=>{ openCompleteModal(id); };
+  document.getElementById('qaEdit').onclick = ()=>{ openTaskEntryModal(t); };
+  document.getElementById('qaDelete').onclick = async ()=>{ closeModal(); await deleteTask(id); renderWeekGrid(); };
+}
+window.openGridCell = openGridCell;
+
+async function staffCycleStatus(id){
+  const t = DB.dailyTasks.find(x=>x.id===id); if(!t) return;
+  if(!currentStaffName){ openIdentityModal(); return; }
+  if(t.agent && t.agent!==currentStaffName){
+    toast(`This task belongs to ${t.agent}`);
+    return;
+  }
+  if(t.status==='Not Started'){
+    if(!t.agent) t.agent = currentStaffName;
+    t.status='In Progress'; t.startedAt = nowLocalInput(); t.startedBy = currentStaffName;
+    await saveOne('dailyTasks'); renderWeekGrid(); toast('Task started');
+  } else if(t.status==='In Progress'){
+    t.status='Completed'; t.completedAt = nowLocalInput(); t.completedBy = currentStaffName;
+    t.processingHrs = computeTaskDuration(t.startedAt || t.completedAt, t.completedAt);
+    await saveOne('dailyTasks'); renderWeekGrid(); toast('Marked complete');
+  } else {
+    toast('Already done — ask your manager to change it');
+  }
+}
+
+document.getElementById('weekTable').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.cell-btn');
+  if(!btn) return;
+  if(btn.dataset.entryId){
+    if(appMode==='manager') openGridCell(btn.dataset.entryId);
+    else staffCycleStatus(btn.dataset.entryId);
+  }
+  else if(btn.dataset.date && appMode==='manager'){
+    openTaskEntryModal(null, { date:btn.dataset.date, task:btn.dataset.task, shift:btn.dataset.shift, agent:'', status:'Not Started', startedAt:'', completedAt:'', bestRx:'', portal:'', notes:'' });
+  }
+});
+
+async function generateWeekChecklist(){
+  const dates = weekDates();
+  let added = 0;
+  dates.forEach(date=>{
+    DB.taskTemplates.forEach(tt=>{
+      ['AM','PM'].forEach(shift=>{
+        const exists = DB.dailyTasks.some(t=>t.date===date && t.task===tt.name && t.shift===shift);
+        if(!exists){
+          DB.dailyTasks.push({id:uid(), date, task:tt.name, shift, agent:'', status:'Not Started', startedBy:'', startedAt:'', completedBy:'', completedAt:'', processingHrs:'', bestRx:'', portal:'', notes:''});
+          added++;
+        }
+      });
+    });
+  });
+  if(added>0){ await saveOne('dailyTasks'); renderWeekGrid(); renderDailyTasks(); toast(`Added ${added} checklist items for this week`); }
+  else toast('Checklist already generated for this week');
+}
+
+async function startNewWeek(){
+  const dates = weekDates();
+  const label = document.getElementById('weekLabel').textContent;
+  if(!confirm(`Start a new week? This clears status, agent, and progress for ${label} on the currently viewed week only. Past weeks stay in your history for the dashboard. This can't be undone.`)) return;
+  const before = DB.dailyTasks.length;
+  DB.dailyTasks = DB.dailyTasks.filter(t=>!dates.includes(t.date));
+  await saveOne('dailyTasks');
+  renderWeekGrid(); renderDailyTasks(); renderDashboard();
+  toast(`Cleared ${before-DB.dailyTasks.length} entries for ${label}`);
+}
+
+
+async function startTask(id){
+  const t = DB.dailyTasks.find(x=>x.id===id); if(!t) return;
+  t.status='In Progress'; t.startedAt = nowLocalInput(); t.startedBy = t.agent;
+  await saveOne('dailyTasks'); renderDailyTasks(); renderWeekGrid(); toast('Task started');
+}
+window.startTask = startTask;
+
+async function deleteTask(id){
+  if(!confirm('Delete this record?')) return;
+  DB.dailyTasks = DB.dailyTasks.filter(r=>r.id!==id);
+  await saveOne('dailyTasks'); renderDailyTasks(); renderWeekGrid(); renderDashboard(); toast('Deleted');
+}
+window.deleteTask = deleteTask;
+
+const overlay = document.getElementById('overlay');
+const modalBody = document.getElementById('modalBody');
+function closeModal(){ overlay.classList.remove('active'); modalBody.innerHTML=''; }
+overlay.addEventListener('click', e=>{ if(e.target===overlay) closeModal(); });
+
+function openCompleteModal(id){
+  const t = DB.dailyTasks.find(x=>x.id===id); if(!t) return;
+  modalBody.innerHTML = `
+    <h3>Complete: ${t.task} (${t.shift})</h3>
+    <div class="form-grid">
+      <div class="field"><label>Completed by</label><input type="text" id="f_completedBy" value="${t.completedBy||t.agent||''}" list="agentSuggestions"></div>
+      <div class="field"><label>Completed at</label><input type="datetime-local" id="f_completedAt" value="${nowLocalInput()}"></div>
+      <div class="field"><label>Amount completed (BestRx)</label><input type="text" id="f_bestrx" value="${t.bestRx||''}" placeholder="manual entry"></div>
+      <div class="field"><label>Amount completed (Portal)</label><input type="text" id="f_portal" value="${t.portal||''}" placeholder="manual entry"></div>
+      <div class="field full"><label>Notes</label><textarea id="f_notes" rows="2">${t.notes||''}</textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="saveCompleteBtn">Mark completed</button>
+    </div>`;
+  overlay.classList.add('active');
+  document.getElementById('saveCompleteBtn').onclick = async ()=>{
+    t.completedBy = document.getElementById('f_completedBy').value || t.agent;
+    t.completedAt = document.getElementById('f_completedAt').value;
+    if(!t.startedAt) t.startedAt = t.completedAt;
+    t.bestRx = document.getElementById('f_bestrx').value;
+    t.portal = document.getElementById('f_portal').value;
+    t.notes = document.getElementById('f_notes').value;
+    t.processingHrs = computeTaskDuration(t.startedAt, t.completedAt);
+    t.status = 'Completed';
+    await saveOne('dailyTasks');
+    closeModal(); renderDailyTasks(); renderWeekGrid(); renderDashboard(); refreshAgentSuggestions(); toast('Task completed');
+  };
+}
+window.openCompleteModal = openCompleteModal;
+
+function openTaskEntryModal(existing, prefill){
+  const t = existing || prefill || {id:null, date:document.getElementById('taskDateFilter').value||todayStr(), task:DB.taskTemplates[0]?.name||'', shift:'AM', agent:'', status:'Not Started', startedAt:'', completedAt:'', bestRx:'', portal:'', notes:''};
+  const taskOptions = DB.taskTemplates.map(tt=>`<option value="${tt.name}" ${tt.name===t.task?'selected':''}>${tt.name}</option>`).join('');
+  modalBody.innerHTML = `
+    <h3>${existing?'Edit task entry':'Add task entry'}</h3>
+    <div class="form-grid">
+      <div class="field"><label>Date</label><input type="date" id="f_date" value="${t.date}"></div>
+      <div class="field"><label>Shift</label><select id="f_shift"><option ${t.shift==='AM'?'selected':''}>AM</option><option ${t.shift==='PM'?'selected':''}>PM</option><option ${t.shift==='N/A'?'selected':''}>N/A</option></select></div>
+      <div class="field full"><label>Task</label><select id="f_task">${taskOptions}</select></div>
+      <div class="field"><label>Agent</label><input type="text" id="f_agent" value="${t.agent}" list="agentSuggestions"></div>
+      <div class="field"><label>Status</label><select id="f_status"><option ${t.status==='Not Started'?'selected':''}>Not Started</option><option ${t.status==='In Progress'?'selected':''}>In Progress</option><option ${t.status==='Completed'?'selected':''}>Completed</option><option ${t.status==='N/A'?'selected':''}>N/A</option></select></div>
+      <div class="field"><label>Started at</label><input type="datetime-local" id="f_startedAt" value="${t.startedAt||''}"></div>
+      <div class="field"><label>Completed at</label><input type="datetime-local" id="f_completedAt" value="${t.completedAt||''}"></div>
+      <div class="field"><label>Amount completed (BestRx)</label><input type="text" id="f_bestrx" value="${t.bestRx||''}"></div>
+      <div class="field"><label>Amount completed (Portal)</label><input type="text" id="f_portal" value="${t.portal||''}"></div>
+      <div class="field full"><label>Notes</label><textarea id="f_notes" rows="2">${t.notes||''}</textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="saveTaskEntryBtn">Save</button>
+    </div>`;
+  overlay.classList.add('active');
+  document.getElementById('saveTaskEntryBtn').onclick = async ()=>{
+    const startedAt = document.getElementById('f_startedAt').value;
+    const completedAt = document.getElementById('f_completedAt').value;
+    const agent = document.getElementById('f_agent').value;
+    const rec = {
+      id: t.id || uid(),
+      date: document.getElementById('f_date').value || todayStr(),
+      task: document.getElementById('f_task').value,
+      shift: document.getElementById('f_shift').value,
+      agent, status: document.getElementById('f_status').value,
+      startedBy: agent, startedAt, completedBy: agent, completedAt,
+      processingHrs: computeTaskDuration(startedAt, completedAt),
+      bestRx: document.getElementById('f_bestrx').value,
+      portal: document.getElementById('f_portal').value,
+      notes: document.getElementById('f_notes').value
+    };
+    if(existing){ DB.dailyTasks = DB.dailyTasks.map(x=>x.id===rec.id?rec:x); } else { DB.dailyTasks.push(rec); }
+    await saveOne('dailyTasks'); closeModal(); renderDailyTasks(); renderWeekGrid(); renderDashboard(); refreshAgentSuggestions(); toast('Task entry saved');
+  };
+}
+window.openTaskEntryModal = openTaskEntryModal;
+
+function openManageTasksModal(){
+  modalBody.innerHTML = `
+    <h3>Manage task list</h3>
+    <div id="templateList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:280px;overflow-y:auto;"></div>
+    <div class="form-grid"><div class="field full"><label>New task name</label><input type="text" id="f_newTask" placeholder="e.g. New Bot Queue Review"></div></div>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn btn-primary btn-sm" id="addTemplateBtn">+ Add task</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+    </div>`;
+  const renderList = ()=>{
+    document.getElementById('templateList').innerHTML = DB.taskTemplates.map(tt=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--beige);border-radius:8px;">
+        <span style="font-size:12.5px;">${tt.name}</span>
+        <button class="icon-btn" onclick="removeTemplate('${tt.id}')" title="Remove">✕</button>
+      </div>`).join('');
+  };
+  renderList();
+  window._renderTemplateList = renderList;
+  overlay.classList.add('active');
+  document.getElementById('addTemplateBtn').onclick = async ()=>{
+    const name = document.getElementById('f_newTask').value.trim();
+    if(!name) return;
+    DB.taskTemplates.push({id:uid(), name});
+    await saveOne('taskTemplates');
+    document.getElementById('f_newTask').value=''; renderList(); toast('Task added');
+  };
+}
+async function removeTemplate(id){
+  DB.taskTemplates = DB.taskTemplates.filter(t=>t.id!==id);
+  await saveOne('taskTemplates');
+  if(window._renderTemplateList) window._renderTemplateList();
+  toast('Task removed');
+}
+window.removeTemplate = removeTemplate;
+
+async function generateTodaysChecklist(){
+  const date = document.getElementById('taskDateFilter').value || todayStr();
+  let added = 0;
+  DB.taskTemplates.forEach(tt=>{
+    ['AM','PM'].forEach(shift=>{
+      const exists = DB.dailyTasks.some(t=>t.date===date && t.task===tt.name && t.shift===shift);
+      if(!exists){
+        DB.dailyTasks.push({id:uid(), date, task:tt.name, shift, agent:'', status:'Not Started', startedBy:'', startedAt:'', completedBy:'', completedAt:'', processingHrs:'', bestRx:'', portal:'', notes:''});
+        added++;
+      }
+    });
+  });
+  if(added>0){ await saveOne('dailyTasks'); renderDailyTasks(); renderWeekGrid(); toast(`Added ${added} checklist items for ${fmtDate(date)}`); }
+  else toast('Checklist already generated for this date');
+}
+
+/* ---------------- CSV ---------------- */
+function toCSV(rows, headers){
+  const esc = v => `"${String(v??'').replace(/"/g,'""')}"`;
+  const lines = [headers.map(h=>esc(h.label)).join(',')];
+  rows.forEach(r=> lines.push(headers.map(h=>esc(h.get(r))).join(',')) );
+  return lines.join('\n');
+}
+function downloadCSV(content, filename){
+  const blob = new Blob([content], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ---------------- dashboard ---------------- */
+let trendChart, statusChart, taskTimeChart, volumeByTaskChart;
+
+/* ---------------- team: agent breakdown + personal dashboard ---------------- */
+const MIN_INSTANCES_FOR_COMPARISON = 3;
+
+function renderTeam(){
+  const range = periodRange(dashPeriod);
+  const tasksInRange = DB.dailyTasks.filter(t=>inRange(t.date, range) && t.status==='Completed');
+  const lunchInRange = DB.lunchLog.filter(l=>inRange(l.date, range) && l.durationMin!=='' && l.durationMin!=null);
+
+  const agents = [...new Set([...tasksInRange.map(t=>t.agent), ...lunchInRange.map(l=>l.staff)].filter(Boolean))].sort();
+
+  const agentBody = document.getElementById('agentBreakdownBody');
+  if(agents.length===0){
+    agentBody.innerHTML = `<tr><td colspan="5"><div class="empty">No completed tasks or lunch entries in this period yet.</div></td></tr>`;
+  } else {
+    agentBody.innerHTML = agents.map(agent=>{
+      const theirTasks = tasksInRange.filter(t=>t.agent===agent);
+      const withTime = theirTasks.filter(t=>t.processingHrs!==''&&t.processingHrs!=null);
+      const avgTime = withTime.length ? (withTime.reduce((s,t)=>s+parseFloat(t.processingHrs),0)/withTime.length) : null;
+      const volume = theirTasks.reduce((s,t)=>s+(parseFloat(t.bestRx)||0)+(parseFloat(t.portal)||0),0);
+      const theirLunch = lunchInRange.filter(l=>l.staff===agent);
+      const avgLunch = theirLunch.length ? (theirLunch.reduce((s,l)=>s+(parseFloat(l.durationMin)||0),0)/theirLunch.length) : null;
+      return `<tr>
+        <td><b>${agent}</b></td>
+        <td>${theirTasks.length}</td>
+        <td>${avgTime!==null ? avgTime.toFixed(2)+'h' : '—'}</td>
+        <td>${Math.round(volume)}</td>
+        <td>${avgLunch!==null ? Math.round(avgLunch)+' min' : '—'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // populate personal agent selector
+  const sel = document.getElementById('personalAgentSelect');
+  const prevVal = sel.value;
+  sel.innerHTML = `<option value="">Choose a staff member…</option>` + agents.map(a=>`<option value="${a}" ${a===prevVal?'selected':''}>${a}</option>`).join('');
+  renderPersonal();
+}
+
+function renderPersonal(){
+  const range = periodRange(dashPeriod);
+  const agent = document.getElementById('personalAgentSelect').value;
+  const body = document.getElementById('personalBody');
+  if(!agent){ body.innerHTML = `<tr><td colspan="4"><div class="empty">Choose a staff member above to see their personal breakdown.</div></td></tr>`; return; }
+
+  const tasksInRange = DB.dailyTasks.filter(t=>inRange(t.date, range) && t.status==='Completed' && t.processingHrs!==''&&t.processingHrs!=null);
+  const theirs = tasksInRange.filter(t=>t.agent===agent);
+  const taskNames = [...new Set(theirs.map(t=>t.task))];
+
+  if(taskNames.length===0){ body.innerHTML = `<tr><td colspan="4"><div class="empty">No completed tasks with recorded time for ${agent} in this period.</div></td></tr>`; return; }
+
+  body.innerHTML = taskNames.map(task=>{
+    const mine = theirs.filter(t=>t.task===task).map(t=>parseFloat(t.processingHrs));
+    const myAvg = mine.reduce((a,b)=>a+b,0)/mine.length;
+    const teamAll = tasksInRange.filter(t=>t.task===task).map(t=>parseFloat(t.processingHrs));
+    const teamAvg = teamAll.reduce((a,b)=>a+b,0)/teamAll.length;
+    const n = mine.length;
+    let vsTeam;
+    if(n < MIN_INSTANCES_FOR_COMPARISON){
+      vsTeam = `<span style="color:rgba(46,3,38,0.5);">Not enough data (${n}x)</span>`;
+    } else {
+      const pct = Math.round(100*(myAvg-teamAvg)/teamAvg);
+      const cls = pct>15?'b-spike':pct<-15?'b-ok':'b-na';
+      vsTeam = `<span class="badge ${cls}">${pct>=0?'+':''}${pct}%</span>`;
+    }
+    return `<tr>
+      <td>${task} <span style="color:rgba(46,3,38,0.45);font-size:11px;">(${n}x)</span></td>
+      <td>${myAvg.toFixed(2)}h</td>
+      <td>${teamAvg.toFixed(2)}h</td>
+      <td>${vsTeam}</td>
+    </tr>`;
+  }).join('');
+}
+document.getElementById('personalAgentSelect').onchange = renderPersonal;
+
+function periodRange(period){
+  if(period==='weekly'){
+    const monday = getMonday(todayStr());
+    return { start: monday, end: addDays(monday,6), label:'This week' };
+  }
+  return { start: todayStr(), end: todayStr(), label:'Today' };
+}
+function baselineRange(period){
+  if(period==='weekly'){
+    const thisMonday = getMonday(todayStr());
+    return { start: addDays(thisMonday,-7), end: addDays(thisMonday,-1), label:'last week', days:7 };
+  }
+  return { start: addDays(todayStr(),-7), end: addDays(todayStr(),-1), label:'trailing 7-day avg', days:7 };
+}
+function inRange(date, range){ return date>=range.start && date<=range.end; }
+
+function renderDashboard(){
+  const range = periodRange(dashPeriod);
+  const baseline = baselineRange(dashPeriod);
+  const periodLabel = range.label;
+
+  const cur = DB.dailyTasks.filter(t=>inRange(t.date, range));
+  const base = DB.dailyTasks.filter(t=>inRange(t.date, baseline));
+  const applicable = cur.filter(t=>t.status!=='N/A');
+  const completed = applicable.filter(t=>t.status==='Completed');
+  const baseApplicable = base.filter(t=>t.status!=='N/A');
+  const baseCompleted = baseApplicable.filter(t=>t.status==='Completed');
+
+  document.getElementById('kpiTotalLabel').textContent = `Tasks logged (${periodLabel})`;
+  document.getElementById('kpiRateLabel').textContent = 'Completion rate';
+  document.getElementById('kpiVolumeLabel').textContent = `Volume (${periodLabel})`;
+  document.getElementById('spikeColCurrent').textContent = periodLabel;
+  document.getElementById('spikeColBaseline').textContent = dashPeriod==='weekly' ? 'Last week' : 'Trailing 7-day avg';
+  document.getElementById('spikeSubtitle').textContent = dashPeriod==='weekly' ? '· this week vs. last week' : '· today vs. trailing 7-day average';
+
+  document.getElementById('kpiTotal').textContent = applicable.length;
+  document.getElementById('kpiTotalDelta').textContent = `${baseApplicable.length} in ${baseline.label}`;
+
+  const rate = applicable.length ? Math.round(100*completed.length/applicable.length) : 0;
+  const baseRate = baseApplicable.length ? Math.round(100*baseCompleted.length/baseApplicable.length) : null;
+  document.getElementById('kpiRate').textContent = rate+'%';
+  document.getElementById('kpiRateDelta').textContent = baseRate!==null ? `${rate-baseRate>=0?'+':''}${rate-baseRate} pts vs ${baseline.label}` : `${completed.length}/${applicable.length} completed`;
+
+  const withTime = completed.filter(t=>t.processingHrs!==''&&t.processingHrs!=null);
+  const avgTime = withTime.length ? (withTime.reduce((s,t)=>s+parseFloat(t.processingHrs),0)/withTime.length) : null;
+  document.getElementById('kpiAvgTime').textContent = avgTime!==null ? avgTime.toFixed(2)+'h' : '—';
+  document.getElementById('kpiAvgTimeDelta').textContent = withTime.length ? `Across ${withTime.length} completed tasks` : 'No completed tasks yet';
+
+  const totalVolume = completed.reduce((s,t)=> s + (parseFloat(t.bestRx)||0) + (parseFloat(t.portal)||0), 0);
+  document.getElementById('kpiVolume').textContent = Math.round(totalVolume);
+  document.getElementById('kpiVolumeDelta').textContent = 'BestRx + Portal, manual entry';
+
+  // Spike detection: compare current period's completed count per task vs baseline (avg per day for daily, total for weekly)
+  const curByTask = {}, baseByTask = {};
+  completed.forEach(t=>{ curByTask[t.task] = (curByTask[t.task]||0)+1; });
+  baseCompleted.forEach(t=>{ baseByTask[t.task] = (baseByTask[t.task]||0)+1; });
+  const baseDivisor = dashPeriod==='daily' ? (baseline.days||7) : 1;
+  const spikeBody = document.getElementById('spikeBody');
+  const allTasks = [...new Set([...Object.keys(curByTask), ...Object.keys(baseByTask)])];
+  const spikeRows = allTasks.map(task=>{
+    const curVal = curByTask[task]||0;
+    const baseVal = (baseByTask[task]||0)/baseDivisor;
+    let pct = null;
+    if(baseVal>0) pct = Math.round(100*(curVal-baseVal)/baseVal);
+    const isSpike = baseVal>0 ? pct>=50 : curVal>=3;
+    return {task, curVal, baseVal, pct, isSpike};
+  }).sort((a,b)=> (b.isSpike-a.isSpike) || (b.curVal-a.curVal));
+  if(spikeRows.length===0){
+    spikeBody.innerHTML = `<tr><td colspan="5"><div class="empty">Not enough data yet to detect spikes.</div></td></tr>`;
+  } else {
+    spikeBody.innerHTML = spikeRows.slice(0,10).map(r=>`
+      <tr>
+        <td>${r.task}</td>
+        <td>${r.curVal}</td>
+        <td>${r.baseVal? r.baseVal.toFixed(1) : '—'}</td>
+        <td>${r.pct!==null ? (r.pct>=0?'+':'')+r.pct+'%' : '—'}</td>
+        <td>${r.isSpike ? '<span class="badge b-spike">⚠ Spike</span>' : '<span class="badge b-ok">Normal</span>'}</td>
+      </tr>`).join('');
+  }
+
+  // trend: completions per day, last 14 days
+  const labels = [], counts = [];
+  for(let i=13;i>=0;i--){
+    const d = addDays(todayStr(), -i);
+    labels.push(d.slice(5));
+    counts.push(DB.dailyTasks.filter(t=>t.date===d && t.status==='Completed').length);
+  }
+  if(trendChart) trendChart.destroy();
+  trendChart = new Chart(document.getElementById('trendChart'), {
+    type:'line',
+    data:{ labels, datasets:[{ label:'Completed', data:counts, borderColor:'#440B39', backgroundColor:'rgba(220,90,238,0.15)', fill:true, tension:0.35, pointRadius:3, pointBackgroundColor:'#DC5AEE' }]},
+    options:{ plugins:{legend:{display:false}}, scales:{ y:{beginAtZero:true, ticks:{precision:0}}, x:{grid:{display:false}} } }
+  });
+
+  const statusCounts = ['Not Started','In Progress','Completed','N/A'].map(s=>cur.filter(t=>t.status===s).length);
+  if(statusChart) statusChart.destroy();
+  statusChart = new Chart(document.getElementById('statusChart'), {
+    type:'doughnut',
+    data:{ labels:['Not Started','In Progress','Completed','N/A'], datasets:[{ data:statusCounts, backgroundColor:['#FF764D','#A9F5FF','#1f7a44','#cccccc'], borderWidth:0 }]},
+    options:{ plugins:{legend:{position:'bottom', labels:{boxWidth:10,font:{size:11}}}}, cutout:'62%' }
+  });
+
+  const byTask = {};
+  completed.forEach(t=>{
+    if(t.processingHrs==='' || t.processingHrs==null) return;
+    if(!byTask[t.task]) byTask[t.task] = [];
+    byTask[t.task].push(parseFloat(t.processingHrs));
+  });
+  const avgByTask = Object.entries(byTask).map(([task,arr])=>[task, arr.reduce((a,b)=>a+b,0)/arr.length]).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(taskTimeChart) taskTimeChart.destroy();
+  taskTimeChart = new Chart(document.getElementById('taskTimeChart'), {
+    type:'bar',
+    data:{ labels:avgByTask.map(t=>t[0]), datasets:[{ data:avgByTask.map(t=>+t[1].toFixed(2)), backgroundColor:'#FF764D', borderRadius:6, maxBarThickness:34 }]},
+    options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{beginAtZero:true}, y:{grid:{display:false}} } }
+  });
+
+  const volByTask = {};
+  completed.forEach(t=>{
+    const amt = (parseFloat(t.bestRx)||0) + (parseFloat(t.portal)||0);
+    if(amt<=0) return;
+    volByTask[t.task] = (volByTask[t.task]||0) + amt;
+  });
+  const volSorted = Object.entries(volByTask).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(volumeByTaskChart) volumeByTaskChart.destroy();
+  volumeByTaskChart = new Chart(document.getElementById('volumeByTaskChart'), {
+    type:'bar',
+    data:{ labels:volSorted.map(t=>t[0]), datasets:[{ data:volSorted.map(t=>Math.round(t[1])), backgroundColor:'#DC5AEE', borderRadius:6, maxBarThickness:34 }]},
+    options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{beginAtZero:true}, y:{grid:{display:false}} } }
+  });
+}
+
+/* ---------------- wiring ---------------- */
+document.getElementById('viewGridBtn').onclick = ()=>{
+  document.getElementById('viewGridBtn').classList.add('active');
+  document.getElementById('viewListBtn').classList.remove('active');
+  document.getElementById('gridView').style.display = '';
+  document.getElementById('listView').style.display = 'none';
+  renderWeekGrid();
+};
+document.getElementById('viewListBtn').onclick = ()=>{
+  document.getElementById('viewListBtn').classList.add('active');
+  document.getElementById('viewGridBtn').classList.remove('active');
+  document.getElementById('listView').style.display = '';
+  document.getElementById('gridView').style.display = 'none';
+  renderDailyTasks();
+};
+document.getElementById('prevWeekBtn').onclick = ()=>{ currentWeekStart = addDays(currentWeekStart,-7); renderWeekGrid(); };
+document.getElementById('nextWeekBtn').onclick = ()=>{ currentWeekStart = addDays(currentWeekStart,7); renderWeekGrid(); };
+document.getElementById('thisWeekBtn').onclick = ()=>{ currentWeekStart = getMonday(todayStr()); renderWeekGrid(); };
+document.getElementById('generateWeekBtn').onclick = ()=>generateWeekChecklist();
+document.getElementById('startNewWeekBtn').onclick = ()=>startNewWeek();
+document.getElementById('periodDailyBtn').onclick = ()=>{
+  dashPeriod = 'daily';
+  document.getElementById('periodDailyBtn').classList.add('active');
+  document.getElementById('periodWeeklyBtn').classList.remove('active');
+  renderDashboard(); renderTeam();
+};
+document.getElementById('periodWeeklyBtn').onclick = ()=>{
+  dashPeriod = 'weekly';
+  document.getElementById('periodWeeklyBtn').classList.add('active');
+  document.getElementById('periodDailyBtn').classList.remove('active');
+  renderDashboard(); renderTeam();
+};
+
+document.getElementById('manageTasksBtn').onclick = ()=>openManageTasksModal();
+document.getElementById('generateChecklistBtn').onclick = ()=>generateTodaysChecklist();
+document.getElementById('addTaskEntryBtn').onclick = ()=>openTaskEntryModal(null);
+document.getElementById('taskDateFilter').onchange = renderDailyTasks;
+document.getElementById('taskStatusFilter').onchange = renderDailyTasks;
+document.getElementById('exportTasks').onclick = ()=>{
+  const csv = toCSV(DB.dailyTasks, [
+    {label:'Date', get:r=>r.date},{label:'Task', get:r=>r.task},{label:'Shift', get:r=>r.shift},{label:'Agent', get:r=>r.agent},
+    {label:'Status', get:r=>r.status},{label:'Started By', get:r=>r.startedBy},{label:'Started At', get:r=>r.startedAt},
+    {label:'Completed By', get:r=>r.completedBy},{label:'Completed At', get:r=>r.completedAt},{label:'Processing Time (hrs)', get:r=>r.processingHrs},
+    {label:'Amount Completed (BestRx)', get:r=>r.bestRx},{label:'Amount Completed (Portal)', get:r=>r.portal},{label:'Notes', get:r=>r.notes}
+  ]);
+  downloadCSV(csv, 'gifthealth_daily_tasks.csv'); toast('CSV downloaded — open in Excel or import to Google Sheets');
+};
+document.getElementById('resetBtn').onclick = async ()=>{
+  if(!confirm('This clears all data in Firestore and reloads demo data. Continue?')) return;
+  seedDemoData(); await saveAll(); renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderTeam(); refreshAgentSuggestions(); toast('Demo data reset');
+};
+
+/* ---------------- init ---------------- */
+(async function init(){
+  try{
+    document.getElementById('taskDateFilter').value = todayStr();
+    document.getElementById('lunchDateFilter').value = todayStr();
+    await loadAll();
+    refreshAgentSuggestions();
+    try{
+      const saved = localStorage.getItem('my-staff-name');
+      if(saved) currentStaffName = saved;
+    }catch(e){}
+    setMode('staff');
+    renderWeekGrid();
+    renderDailyTasks();
+    renderDashboard();
+    renderLunch();
+    renderTeam();
+  }catch(e){
+    console.error(e);
+    document.getElementById('content').innerHTML = '<div class="empty">Could not load data. Please refresh.</div>';
+  }
+})();
+</script>
+</body>
+</html>
