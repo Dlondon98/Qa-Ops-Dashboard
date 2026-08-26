@@ -255,6 +255,7 @@
               <button id="viewListBtn">List</button>
             </div>
             <button class="btn btn-ghost btn-sm manager-only" id="manageTasksBtn">Manage task list</button>
+            <button class="btn btn-ghost btn-sm manager-only" id="manageStaffBtn">Manage staff</button>
             <button class="btn btn-ghost btn-sm manager-only" id="exportTasks">Export CSV</button>
             <button class="btn btn-ghost btn-sm manager-only" id="startNewWeekBtn" style="color:#B3204D;border-color:rgba(179,32,77,0.25);">Start new week</button>
             <button class="btn btn-ghost btn-sm manager-only" id="resetIdentityBtn">Reset this device's identity</button>
@@ -365,8 +366,8 @@
 
 <script>
 /* ---------------- storage ---------------- */
-const KEYS = { taskTemplates:'task-templates-data', dailyTasks:'daily-tasks-data', lunchLog:'lunch-log-data' };
-let DB = { taskTemplates:[], dailyTasks:[], lunchLog:[] };
+const KEYS = { taskTemplates:'task-templates-data', dailyTasks:'daily-tasks-data', lunchLog:'lunch-log-data', staff:'staff-roster-data' };
+let DB = { taskTemplates:[], dailyTasks:[], lunchLog:[], staff:[] };
 
 const DEFAULT_TASK_TEMPLATES = [
   'Review/ Dump CMM Shipped','Review/ Dump Arizona Shipped','NDP Bot Failed','Troubleshoot Bots',
@@ -384,6 +385,16 @@ function todayStr(){ return new Date().toISOString().slice(0,10); }
 function addDays(dateStr,n){ const d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
 function addMinutesISO(iso,min){ const d=new Date(iso.length<=16?iso+':00':iso); d.setMinutes(d.getMinutes()+min); return d.toISOString().slice(0,16); }
 function nowLocalInput(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); }
+function formatHrsMins(hrsDecimal){
+  if(hrsDecimal===''||hrsDecimal==null||isNaN(hrsDecimal)) return '—';
+  const totalMin = Math.round(parseFloat(hrsDecimal)*60);
+  if(totalMin<=0) return '0m';
+  const h = Math.floor(totalMin/60);
+  const m = totalMin%60;
+  if(h===0) return m+'m';
+  if(m===0) return h+'h';
+  return h+'h '+m+'m';
+}
 function computeTaskDuration(startedAt,completedAt){
   if(!startedAt || !completedAt) return '';
   const ms = new Date(completedAt.length<=16?completedAt+':00':completedAt) - new Date(startedAt.length<=16?startedAt+':00':startedAt);
@@ -433,6 +444,7 @@ function seedDemoData(){
   DB.taskTemplates = DEFAULT_TASK_TEMPLATES.map(name=>({id:uid(), name}));
   DB.dailyTasks = [];
   const agents = ['Rachel','Olivia','Aamari','Kayla'];
+  DB.staff = agents.map(name=>({id:uid(), name}));
   for(let i=9;i>=0;i--){
     const date = addDays(todayStr(), -i);
     DEFAULT_TASK_TEMPLATES.slice(0,10).forEach(task=>{
@@ -506,7 +518,7 @@ function taskStatusBadge(s){
 
 /* ---------------- agent suggestions ---------------- */
 function refreshAgentSuggestions(){
-  const names = [...new Set([...DB.dailyTasks.map(t=>t.agent), ...DB.lunchLog.map(l=>l.staff)].filter(Boolean))].sort();
+  const names = [...new Set([...DB.staff.map(s=>s.name), ...DB.dailyTasks.map(t=>t.agent), ...DB.lunchLog.map(l=>l.staff)].filter(Boolean))].sort();
   document.getElementById('agentSuggestions').innerHTML = names.map(n=>`<option value="${n}">`).join('');
 }
 
@@ -578,7 +590,7 @@ function renderDailyTasks(){
       <td>${taskStatusBadge(t.status)}</td>
       <td>${fmtDT(t.startedAt)}</td>
       <td>${fmtDT(t.completedAt)}</td>
-      <td>${t.processingHrs!==''&&t.processingHrs!=null ? t.processingHrs+'h' : '—'}</td>
+      <td>${formatHrsMins(t.processingHrs)}</td>
       <td>${t.bestRx!==''&&t.bestRx!=null ? t.bestRx : '—'}</td>
       <td>${t.portal!==''&&t.portal!=null ? t.portal : '—'}</td>
       <td style="white-space:nowrap;">
@@ -956,6 +968,65 @@ async function removeTemplate(id){
 }
 window.removeTemplate = removeTemplate;
 
+/* ---------------- staff roster ---------------- */
+function openManageStaffModal(){
+  modalBody.innerHTML = `
+    <h3>Manage staff</h3>
+    <div id="staffListWrap" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:300px;overflow-y:auto;"></div>
+    <div class="form-grid"><div class="field full"><label>Add staff member</label><input type="text" id="f_newStaff" placeholder="Full name"></div></div>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn btn-primary btn-sm" id="addStaffBtn2">+ Add staff</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+    </div>`;
+  const renderList = ()=>{
+    const wrap = document.getElementById('staffListWrap');
+    if(DB.staff.length===0){ wrap.innerHTML = `<div class="empty" style="padding:20px;">No staff added yet.</div>`; return; }
+    wrap.innerHTML = DB.staff.map(s=>`
+      <div style="display:flex;gap:6px;align-items:center;padding:6px 8px;background:var(--beige);border-radius:8px;">
+        <input type="text" value="${escAttr(s.name)}" id="staffname_${s.id}" style="flex:1;">
+        <button class="icon-btn" title="Save name" onclick="renameStaff('${s.id}')">✓</button>
+        <button class="icon-btn" title="Remove" onclick="removeStaff('${s.id}')">✕</button>
+      </div>`).join('');
+  };
+  renderList();
+  window._renderStaffList = renderList;
+  overlay.classList.add('active');
+  document.getElementById('addStaffBtn2').onclick = async ()=>{
+    const name = document.getElementById('f_newStaff').value.trim();
+    if(!name){ toast('Enter a name'); return; }
+    if(DB.staff.some(s=>s.name.toLowerCase()===name.toLowerCase())){ toast('That name is already on the list'); return; }
+    DB.staff.push({id:uid(), name});
+    await saveOne('staff');
+    document.getElementById('f_newStaff').value='';
+    renderList();
+    refreshAgentSuggestions();
+    renderTeam();
+    toast('Staff added');
+  };
+}
+async function renameStaff(id){
+  const input = document.getElementById('staffname_'+id);
+  const newName = input.value.trim();
+  if(!newName){ toast('Name cannot be blank'); return; }
+  const s = DB.staff.find(x=>x.id===id); if(!s) return;
+  s.name = newName;
+  await saveOne('staff');
+  refreshAgentSuggestions();
+  renderTeam();
+  toast('Name updated — note past logged tasks keep the old name');
+}
+window.renameStaff = renameStaff;
+async function removeStaff(id){
+  if(!confirm('Remove this staff member from the list? Past logged tasks under their name are not affected.')) return;
+  DB.staff = DB.staff.filter(s=>s.id!==id);
+  await saveOne('staff');
+  if(window._renderStaffList) window._renderStaffList();
+  refreshAgentSuggestions();
+  renderTeam();
+  toast('Staff removed');
+}
+window.removeStaff = removeStaff;
+
 async function generateTodaysChecklist(){
   const date = document.getElementById('taskDateFilter').value || todayStr();
   let added = 0;
@@ -997,11 +1068,11 @@ function renderTeam(){
   const tasksInRange = DB.dailyTasks.filter(t=>inRange(t.date, range) && t.status==='Completed');
   const lunchInRange = DB.lunchLog.filter(l=>inRange(l.date, range) && l.durationMin!=='' && l.durationMin!=null);
 
-  const agents = [...new Set([...tasksInRange.map(t=>t.agent), ...lunchInRange.map(l=>l.staff)].filter(Boolean))].sort();
+  const agents = [...new Set([...DB.staff.map(s=>s.name), ...tasksInRange.map(t=>t.agent), ...lunchInRange.map(l=>l.staff)].filter(Boolean))].sort();
 
   const agentBody = document.getElementById('agentBreakdownBody');
   if(agents.length===0){
-    agentBody.innerHTML = `<tr><td colspan="5"><div class="empty">No completed tasks or lunch entries in this period yet.</div></td></tr>`;
+    agentBody.innerHTML = `<tr><td colspan="5"><div class="empty">No staff on the roster yet. Use "Manage staff" in Daily Tasks to add some.</div></td></tr>`;
   } else {
     agentBody.innerHTML = agents.map(agent=>{
       const theirTasks = tasksInRange.filter(t=>t.agent===agent);
@@ -1013,7 +1084,7 @@ function renderTeam(){
       return `<tr>
         <td><b>${agent}</b></td>
         <td>${theirTasks.length}</td>
-        <td>${avgTime!==null ? avgTime.toFixed(2)+'h' : '—'}</td>
+        <td>${avgTime!==null ? formatHrsMins(avgTime) : '—'}</td>
         <td>${Math.round(volume)}</td>
         <td>${avgLunch!==null ? Math.round(avgLunch)+' min' : '—'}</td>
       </tr>`;
@@ -1055,8 +1126,8 @@ function renderPersonal(){
     }
     return `<tr>
       <td>${task} <span style="color:rgba(46,3,38,0.45);font-size:11px;">(${n}x)</span></td>
-      <td>${myAvg.toFixed(2)}h</td>
-      <td>${teamAvg.toFixed(2)}h</td>
+      <td>${formatHrsMins(myAvg)}</td>
+      <td>${formatHrsMins(teamAvg)}</td>
       <td>${vsTeam}</td>
     </tr>`;
   }).join('');
@@ -1108,7 +1179,7 @@ function renderDashboard(){
 
   const withTime = completed.filter(t=>t.processingHrs!==''&&t.processingHrs!=null);
   const avgTime = withTime.length ? (withTime.reduce((s,t)=>s+parseFloat(t.processingHrs),0)/withTime.length) : null;
-  document.getElementById('kpiAvgTime').textContent = avgTime!==null ? avgTime.toFixed(2)+'h' : '—';
+  document.getElementById('kpiAvgTime').textContent = avgTime!==null ? formatHrsMins(avgTime) : '—';
   document.getElementById('kpiAvgTimeDelta').textContent = withTime.length ? `Across ${withTime.length} completed tasks` : 'No completed tasks yet';
 
   const totalVolume = completed.reduce((s,t)=> s + (parseFloat(t.bestRx)||0) + (parseFloat(t.portal)||0), 0);
@@ -1176,7 +1247,7 @@ function renderDashboard(){
   taskTimeChart = new Chart(document.getElementById('taskTimeChart'), {
     type:'bar',
     data:{ labels:avgByTask.map(t=>t[0]), datasets:[{ data:avgByTask.map(t=>+t[1].toFixed(2)), backgroundColor:'#FF764D', borderRadius:6, maxBarThickness:34 }]},
-    options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{beginAtZero:true}, y:{grid:{display:false}} } }
+    options:{ indexAxis:'y', plugins:{legend:{display:false}, tooltip:{ callbacks:{ label:(ctx)=>formatHrsMins(ctx.parsed.x) } }}, scales:{ x:{beginAtZero:true}, y:{grid:{display:false}} } }
   });
 
   const volByTask = {};
@@ -1228,6 +1299,7 @@ document.getElementById('periodWeeklyBtn').onclick = ()=>{
 };
 
 document.getElementById('manageTasksBtn').onclick = ()=>openManageTasksModal();
+document.getElementById('manageStaffBtn').onclick = ()=>openManageStaffModal();
 document.getElementById('generateChecklistBtn').onclick = ()=>generateTodaysChecklist();
 document.getElementById('addTaskEntryBtn').onclick = ()=>openTaskEntryModal(null);
 document.getElementById('taskDateFilter').onchange = renderDailyTasks;
