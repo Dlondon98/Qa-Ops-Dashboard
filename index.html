@@ -882,10 +882,18 @@ function setMode(mode){
 document.getElementById('managerSigninBtn').onclick = ()=>{
   const pin = prompt('Enter manager PIN:');
   if(pin===null) return;
-  if(pin===MANAGER_PIN){ setMode('manager'); toast('Manager view unlocked'); }
+  if(pin===MANAGER_PIN){
+    setMode('manager');
+    try{ localStorage.setItem('is-manager-device','true'); }catch(e){}
+    toast('Manager view unlocked — this device will open to Manager mode next time');
+  }
   else toast('Incorrect PIN');
 };
-document.getElementById('exitManagerBtn').onclick = ()=>{ setMode('staff'); toast('Back to staff view'); };
+document.getElementById('exitManagerBtn').onclick = ()=>{
+  setMode('staff');
+  try{ localStorage.removeItem('is-manager-device'); }catch(e){}
+  toast('Back to staff view');
+};
 document.getElementById('resetIdentityBtn').onclick = async ()=>{
   if(!confirm("Reset this device's identity? The next person to use Daily Tasks on this device/session will be asked to enter their name again.")) return;
   currentStaffName = '';
@@ -1818,7 +1826,9 @@ document.getElementById('resetBtn').onclick = async ()=>{
       const saved = localStorage.getItem('my-staff-name');
       if(saved) currentStaffName = saved;
     }catch(e){}
-    setMode('staff');
+    let isManagerDevice = false;
+    try{ isManagerDevice = localStorage.getItem('is-manager-device')==='true'; }catch(e){}
+    setMode(isManagerDevice ? 'manager' : 'staff');
     renderWeekGrid();
     renderDailyTasks();
     renderDashboard();
