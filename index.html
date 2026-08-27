@@ -117,6 +117,33 @@
   .manager-exit-link{ display:none; }
   body.mode-manager .manager-exit-link{ display:inline-flex; }
   .mode-pill{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:5px 10px;border-radius:999px;background:rgba(255,255,255,0.12);color:#fff;text-align:left;border:none;cursor:pointer;width:100%;}
+
+  /* Direct reports overview cards */
+  .score-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;}
+  .score-card{background:var(--white);border:1px solid var(--line);border-radius:14px;padding:16px;position:relative;}
+  .score-card.flagged{border-color:rgba(179,32,77,0.35);background:rgba(179,32,77,0.03);}
+  .score-card .who{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--orange),var(--pink));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;font-family:"Funnel Display";flex:none;}
+  .score-card .name{font-weight:700;font-size:14px;}
+  .score-row{display:flex;justify-content:space-between;font-size:12.5px;padding:5px 0;border-bottom:1px dashed var(--line);}
+  .score-row:last-child{border-bottom:none;}
+  .score-row b{color:var(--purple);}
+  .score-card-actions{display:flex;gap:6px;margin-top:10px;}
+  .score-card-actions button{flex:1;font-size:11px;padding:6px 4px;}
+
+  /* Task efficiency matrix */
+  .matrix-wrap{overflow-x:auto;background:var(--white);border-radius:14px;border:1px solid var(--line);}
+  table.matrix-table{border-collapse:collapse;width:100%;min-width:640px;}
+  table.matrix-table th, table.matrix-table td{border:1px solid var(--line);padding:8px 10px;font-size:12px;white-space:nowrap;}
+  table.matrix-table th{background:var(--beige);font-weight:700;color:rgba(46,3,38,0.7);font-size:11px;}
+  table.matrix-table td.task-col, table.matrix-table th.task-col{position:sticky;left:0;background:var(--white);z-index:2;text-align:left;min-width:150px;}
+  table.matrix-table th.task-col{background:var(--purple);color:#fff;z-index:3;}
+  table.matrix-table td{text-align:center;}
+  .cell-strength{background:#DCF3E3;}
+  .cell-weakness{background:#FFE1EC;}
+  .matrix-legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11px;color:rgba(46,3,38,0.6);margin:10px 2px 0;}
+  .matrix-legend .lg-item{display:flex;align-items:center;gap:5px;}
+  .matrix-legend .lg-dot{width:10px;height:10px;border-radius:3px;display:inline-block;}
   .mode-pill:hover{background:rgba(255,255,255,0.2);}
 
   .identity-bar{display:flex;align-items:center;gap:8px;background:var(--white);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:14px;font-size:12.5px;}
@@ -361,6 +388,17 @@
 
       <!-- TEAM -->
       <div class="view manager-only" id="view-team">
+        <div class="panel-head"><h2>My Direct Reports <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· combined snapshot, this period</span></h2></div>
+        <div class="score-grid" id="reportsOverviewGrid" style="margin-bottom:26px;"></div>
+
+        <div class="panel-head"><h2>Task Efficiency Matrix <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· avg. processing time per task, per staff member</span></h2></div>
+        <div class="matrix-wrap" style="margin-bottom:8px;"><table class="matrix-table" id="taskMatrixTable"></table></div>
+        <div class="matrix-legend" style="margin-bottom:26px;">
+          <span class="lg-item"><span class="lg-dot" style="background:#DCF3E3;"></span> Strength — notably faster than the team average on that task</span>
+          <span class="lg-item"><span class="lg-dot" style="background:#FFE1EC;"></span> Weakness — notably slower than the team average on that task</span>
+          <span class="lg-item"><span class="lg-dot" style="background:var(--white);border:1px solid var(--line);"></span> Normal, or fewer than 3 logged to compare fairly</span>
+        </div>
+
         <div class="panel-head"><h2>Agent Breakdown</h2></div>
         <div class="table-wrap" style="margin-bottom:22px;"><div class="table-scroll">
           <table>
@@ -385,7 +423,18 @@
 
       <!-- METRICS -->
       <div class="view manager-only" id="view-metrics">
-        <div class="panel-head"><h2>Performance Alerts <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· this period vs. baseline</span></h2></div>
+        <div class="kpi-grid" style="margin-bottom:18px;">
+          <div class="kpi" style="--accent:#B3204D"><div class="label">Flagged staff</div><div class="value" id="metricsKpiFlagged">0</div><div class="delta" id="metricsKpiFlaggedDelta">&mdash;</div></div>
+          <div class="kpi" style="--accent:var(--blue)"><div class="label">Team avg. processing time</div><div class="value" id="metricsKpiAvgTime">&mdash;</div><div class="delta">This period</div></div>
+          <div class="kpi" style="--accent:#1f7a44"><div class="label">Team attendance rate</div><div class="value" id="metricsKpiAttendance">&mdash;</div><div class="delta">This period</div></div>
+          <div class="kpi" style="--accent:var(--orange)"><div class="label">Coaching notes logged</div><div class="value" id="metricsKpiNotes">0</div><div class="delta">This period</div></div>
+        </div>
+        <div class="panel-head">
+          <h2>Performance Alerts <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· this period vs. baseline</span></h2>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--purple);cursor:pointer;">
+            <input type="checkbox" id="metricsShowAllToggle"> Show all staff, not just flagged
+          </label>
+        </div>
         <div class="table-wrap" style="margin-bottom:22px;"><div class="table-scroll">
           <table>
             <thead><tr><th>Staff</th><th>Avg. time (this period)</th><th>Avg. time (baseline)</th><th>Change</th><th>Attendance rate</th><th></th></tr></thead>
@@ -1098,10 +1147,17 @@ function openManageTasksModal(){
     <div id="templateList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:280px;overflow-y:auto;"></div>
     <div class="form-grid"><div class="field full"><label>New task name</label><input type="text" id="f_newTask" placeholder="e.g. New Bot Queue Review"></div></div>
     <div class="modal-actions" style="justify-content:space-between;">
-      <button class="btn btn-primary btn-sm" id="addTemplateBtn">+ Add task</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary btn-sm" id="addTemplateBtn">+ Add task</button>
+        <button class="btn btn-ghost btn-sm" id="clearAllTasksBtn" style="color:#B3204D;border-color:rgba(179,32,77,0.25);">Clear all tasks</button>
+      </div>
       <button class="btn btn-ghost" onclick="closeModal()">Close</button>
     </div>`;
   const renderList = ()=>{
+    if(DB.taskTemplates.length===0){
+      document.getElementById('templateList').innerHTML = `<div class="empty" style="padding:16px;">No tasks in the list.</div>`;
+      return;
+    }
     document.getElementById('templateList').innerHTML = DB.taskTemplates.map(tt=>`
       <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--beige);border-radius:8px;">
         <span style="font-size:12.5px;">${tt.name}</span>
@@ -1117,6 +1173,14 @@ function openManageTasksModal(){
     DB.taskTemplates.push({id:uid(), name});
     await saveOne('taskTemplates');
     document.getElementById('f_newTask').value=''; renderList(); toast('Task added');
+  };
+  document.getElementById('clearAllTasksBtn').onclick = async ()=>{
+    if(DB.taskTemplates.length===0) return;
+    if(!confirm(`Remove all ${DB.taskTemplates.length} tasks from the list? This only clears the task list itself — it does not delete any already-generated checklist entries or history.`)) return;
+    DB.taskTemplates = [];
+    await saveOne('taskTemplates');
+    renderList();
+    toast('Task list cleared');
   };
 }
 async function removeTemplate(id){
@@ -1222,39 +1286,122 @@ let trendChart, statusChart, taskTimeChart, volumeByTaskChart;
 /* ---------------- team: agent breakdown + personal dashboard ---------------- */
 const MIN_INSTANCES_FOR_COMPARISON = 3;
 
+function renderTaskMatrix(range, agents){
+  const tasksWithTime = DB.dailyTasks.filter(t=>inRange(t.date, range) && t.status==='Completed' && t.processingHrs!==''&&t.processingHrs!=null);
+  const table = document.getElementById('taskMatrixTable');
+  const taskNames = [...new Set(tasksWithTime.map(t=>t.task))].sort();
+
+  if(taskNames.length===0 || agents.length===0){
+    table.innerHTML = `<tr><td><div class="empty">No completed tasks with recorded time yet for this period.</div></td></tr>`;
+    return;
+  }
+
+  // team average per task (across all staff) — the benchmark each cell is compared to
+  const teamAvgByTask = {};
+  taskNames.forEach(task=>{
+    const vals = tasksWithTime.filter(t=>t.task===task).map(t=>parseFloat(t.processingHrs));
+    teamAvgByTask[task] = vals.reduce((a,b)=>a+b,0)/vals.length;
+  });
+
+  let thead = '<tr><th class="task-col">Staff</th>' + taskNames.map(t=>`<th>${t}</th>`).join('') + '</tr>';
+  let rows = agents.map(agent=>{
+    let row = `<tr><td class="task-col"><b>${agent}</b></td>`;
+    taskNames.forEach(task=>{
+      const entries = tasksWithTime.filter(t=>t.agent===agent && t.task===task).map(t=>parseFloat(t.processingHrs));
+      if(entries.length===0){ row += `<td style="color:rgba(46,3,38,0.3);">—</td>`; return; }
+      const avg = entries.reduce((a,b)=>a+b,0)/entries.length;
+      let cls = '';
+      if(entries.length>=MIN_INSTANCES_FOR_COMPARISON && teamAvgByTask[task]>0){
+        const pct = 100*(avg-teamAvgByTask[task])/teamAvgByTask[task];
+        if(pct<=-15) cls = 'cell-strength';
+        else if(pct>=20) cls = 'cell-weakness';
+      }
+      row += `<td class="${cls}" title="${entries.length} logged, team avg ${formatHrsMins(teamAvgByTask[task])}">${formatHrsMins(avg)}<br><span style="font-size:9px;opacity:0.55;">(${entries.length}x)</span></td>`;
+    });
+    row += '</tr>';
+    return row;
+  }).join('');
+
+  table.innerHTML = thead + rows;
+}
+
 function renderTeam(){
   const range = periodRange(dashPeriod);
+  const baseline = baselineRange(dashPeriod);
   const tasksInRange = DB.dailyTasks.filter(t=>inRange(t.date, range) && t.status==='Completed');
+  const baseTasksInRange = DB.dailyTasks.filter(t=>inRange(t.date, baseline) && t.status==='Completed' && t.processingHrs!==''&&t.processingHrs!=null);
   const lunchInRange = DB.lunchLog.filter(l=>inRange(l.date, range) && l.durationMin!=='' && l.durationMin!=null);
   const attendanceInRange = DB.attendance.filter(a=>inRange(a.date, range));
 
   const agents = [...new Set([...DB.staff.map(s=>s.name), ...tasksInRange.map(t=>t.agent), ...lunchInRange.map(l=>l.staff), ...attendanceInRange.map(a=>a.staff)].filter(Boolean))].sort();
 
+  renderTaskMatrix(range, agents);
+
+  const stats = agents.map(agent=>{
+    const theirTasks = tasksInRange.filter(t=>t.agent===agent);
+    const withTime = theirTasks.filter(t=>t.processingHrs!==''&&t.processingHrs!=null);
+    const avgTime = withTime.length ? (withTime.reduce((s,t)=>s+parseFloat(t.processingHrs),0)/withTime.length) : null;
+    const volume = theirTasks.reduce((s,t)=>s+(parseFloat(t.bestRx)||0)+(parseFloat(t.portal)||0),0);
+    const theirLunch = lunchInRange.filter(l=>l.staff===agent);
+    const avgLunch = theirLunch.length ? (theirLunch.reduce((s,l)=>s+(parseFloat(l.durationMin)||0),0)/theirLunch.length) : null;
+    const theirAttendance = attendanceInRange.filter(a=>a.staff===agent);
+    const presentCount = theirAttendance.filter(a=>a.status==='Present').length;
+    const lateCount = theirAttendance.filter(a=>a.status==='Late').length;
+    const absentCount = theirAttendance.filter(a=>a.status==='Absent').length;
+    const attRate = theirAttendance.length ? Math.round(100*presentCount/theirAttendance.length) : null;
+    const baseMine = baseTasksInRange.filter(t=>t.agent===agent).map(t=>parseFloat(t.processingHrs));
+    const baseAvg = baseMine.length ? baseMine.reduce((a,b)=>a+b,0)/baseMine.length : null;
+    let pct = null, flagged = false, reason = [];
+    if(avgTime!==null && baseAvg!==null && baseAvg>0){
+      pct = Math.round(100*(avgTime-baseAvg)/baseAvg);
+      if(pct>=20 && withTime.length>=MIN_INSTANCES_FOR_COMPARISON){ flagged = true; reason.push('slower processing'); }
+    }
+    if(attRate!==null && attRate<75){ flagged = true; reason.push('low attendance'); }
+    const notesForAgent = DB.coachingNotes.filter(n=>n.staff===agent).sort((a,b)=>b.date.localeCompare(a.date));
+    return { agent, theirTasksCount:theirTasks.length, avgTime, volume, avgLunch, attRate, lateCount, absentCount, hasAttendance:theirAttendance.length>0, pct, flagged, reason, latestNote: notesForAgent[0]||null, noteCount: notesForAgent.length };
+  });
+
+  // Direct reports overview cards
+  const grid = document.getElementById('reportsOverviewGrid');
+  if(stats.length===0){
+    grid.innerHTML = `<div class="empty">No staff on the roster yet. Use "Manage staff" in Daily Tasks to add some.</div>`;
+  } else {
+    const sorted = [...stats].sort((a,b)=>(b.flagged-a.flagged) || (a.agent.localeCompare(b.agent)));
+    grid.innerHTML = sorted.map(s=>{
+      const initials = s.agent.split(' ').map(p=>p[0]).slice(0,2).join('').toUpperCase();
+      const attBadge = s.attRate!==null ? `<span class="badge ${s.attRate>=90?'b-ok':s.attRate>=75?'b-open':'b-spike'}">${s.attRate}%</span>` : '—';
+      return `
+      <div class="score-card${s.flagged?' flagged':''}">
+        <div class="who">
+          <div class="avatar">${initials}</div>
+          <div><div class="name">${s.agent}</div>${s.flagged?`<span class="badge b-spike" style="margin-top:2px;">⚠ ${s.reason.join(', ')}</span>`:`<span class="badge b-ok" style="margin-top:2px;">On track</span>`}</div>
+        </div>
+        <div class="score-row"><span>Tasks completed</span><b>${s.theirTasksCount}</b></div>
+        <div class="score-row"><span>Avg. processing time</span><b>${s.avgTime!==null?formatHrsMins(s.avgTime):'—'}</b></div>
+        <div class="score-row"><span>Attendance rate</span><b>${attBadge}</b></div>
+        <div class="score-row"><span>Coaching notes</span><b>${s.noteCount}</b></div>
+        <div class="score-card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="jumpToPersonal('${escAttr(s.agent)}')">View details</button>
+          <button class="btn btn-ghost btn-sm" onclick="jumpToMetricsNotes('${escAttr(s.agent)}')">Coaching notes</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
   const agentBody = document.getElementById('agentBreakdownBody');
   if(agents.length===0){
     agentBody.innerHTML = `<tr><td colspan="7"><div class="empty">No staff on the roster yet. Use "Manage staff" in Daily Tasks to add some.</div></td></tr>`;
   } else {
-    agentBody.innerHTML = agents.map(agent=>{
-      const theirTasks = tasksInRange.filter(t=>t.agent===agent);
-      const withTime = theirTasks.filter(t=>t.processingHrs!==''&&t.processingHrs!=null);
-      const avgTime = withTime.length ? (withTime.reduce((s,t)=>s+parseFloat(t.processingHrs),0)/withTime.length) : null;
-      const volume = theirTasks.reduce((s,t)=>s+(parseFloat(t.bestRx)||0)+(parseFloat(t.portal)||0),0);
-      const theirLunch = lunchInRange.filter(l=>l.staff===agent);
-      const avgLunch = theirLunch.length ? (theirLunch.reduce((s,l)=>s+(parseFloat(l.durationMin)||0),0)/theirLunch.length) : null;
-      const theirAttendance = attendanceInRange.filter(a=>a.staff===agent);
-      const presentCount = theirAttendance.filter(a=>a.status==='Present').length;
-      const lateCount = theirAttendance.filter(a=>a.status==='Late').length;
-      const absentCount = theirAttendance.filter(a=>a.status==='Absent').length;
-      const attRate = theirAttendance.length ? Math.round(100*presentCount/theirAttendance.length) : null;
-      const attClass = attRate===null ? '' : attRate>=90 ? 'b-ok' : attRate>=75 ? 'b-open' : 'b-spike';
+    agentBody.innerHTML = stats.map(s=>{
+      const attClass = s.attRate===null ? '' : s.attRate>=90 ? 'b-ok' : s.attRate>=75 ? 'b-open' : 'b-spike';
       return `<tr>
-        <td><b>${agent}</b></td>
-        <td>${theirTasks.length}</td>
-        <td>${avgTime!==null ? formatHrsMins(avgTime) : '—'}</td>
-        <td>${Math.round(volume)}</td>
-        <td>${avgLunch!==null ? Math.round(avgLunch)+' min' : '—'}</td>
-        <td>${attRate!==null ? `<span class="badge ${attClass}">${attRate}%</span>` : '—'}</td>
-        <td>${theirAttendance.length ? `${lateCount} / ${absentCount}` : '—'}</td>
+        <td><b>${s.agent}</b></td>
+        <td>${s.theirTasksCount}</td>
+        <td>${s.avgTime!==null ? formatHrsMins(s.avgTime) : '—'}</td>
+        <td>${Math.round(s.volume)}</td>
+        <td>${s.avgLunch!==null ? Math.round(s.avgLunch)+' min' : '—'}</td>
+        <td>${s.attRate!==null ? `<span class="badge ${attClass}">${s.attRate}%</span>` : '—'}</td>
+        <td>${s.hasAttendance ? `${s.lateCount} / ${s.absentCount}` : '—'}</td>
       </tr>`;
     }).join('');
   }
@@ -1265,6 +1412,24 @@ function renderTeam(){
   sel.innerHTML = `<option value="">Choose a staff member…</option>` + agents.map(a=>`<option value="${a}" ${a===prevVal?'selected':''}>${a}</option>`).join('');
   renderPersonal();
 }
+
+function jumpToPersonal(agent){
+  document.querySelector('.nav-btn[data-view="team"]').click();
+  const sel = document.getElementById('personalAgentSelect');
+  sel.value = agent;
+  renderPersonal();
+  setTimeout(()=>sel.scrollIntoView({behavior:'smooth', block:'center'}), 100);
+}
+window.jumpToPersonal = jumpToPersonal;
+
+function jumpToMetricsNotes(agent){
+  document.querySelector('.nav-btn[data-view="metrics"]').click();
+  setTimeout(()=>{
+    const sel = document.getElementById('notesStaffFilter');
+    if(sel){ sel.value = agent; renderCoachingNotes(); sel.scrollIntoView({behavior:'smooth', block:'center'}); }
+  }, 50);
+}
+window.jumpToMetricsNotes = jumpToMetricsNotes;
 
 function renderPersonal(){
   const range = periodRange(dashPeriod);
@@ -1309,38 +1474,63 @@ function renderMetrics(){
   const curTasks = DB.dailyTasks.filter(t=>inRange(t.date, range) && t.status==='Completed' && t.processingHrs!==''&&t.processingHrs!=null);
   const baseTasks = DB.dailyTasks.filter(t=>inRange(t.date, baseline) && t.status==='Completed' && t.processingHrs!==''&&t.processingHrs!=null);
   const curAttendance = DB.attendance.filter(a=>inRange(a.date, range));
+  const curNotes = DB.coachingNotes.filter(n=>inRange(n.date, range));
 
   const agents = [...new Set([...DB.staff.map(s=>s.name), ...curTasks.map(t=>t.agent)].filter(Boolean))].sort();
   const body = document.getElementById('metricsAlertsBody');
+  const showAll = document.getElementById('metricsShowAllToggle').checked;
+
+  // team-wide KPIs
+  const allCurTimes = curTasks.map(t=>parseFloat(t.processingHrs));
+  const teamAvgTime = allCurTimes.length ? allCurTimes.reduce((a,b)=>a+b,0)/allCurTimes.length : null;
+  document.getElementById('metricsKpiAvgTime').textContent = teamAvgTime!==null ? formatHrsMins(teamAvgTime) : '—';
+  const teamPresent = curAttendance.filter(a=>a.status==='Present').length;
+  const teamAttRate = curAttendance.length ? Math.round(100*teamPresent/curAttendance.length) : null;
+  document.getElementById('metricsKpiAttendance').textContent = teamAttRate!==null ? teamAttRate+'%' : '—';
+  document.getElementById('metricsKpiNotes').textContent = curNotes.length;
 
   if(agents.length===0){
     body.innerHTML = `<tr><td colspan="6"><div class="empty">No staff on the roster yet.</div></td></tr>`;
+    document.getElementById('metricsKpiFlagged').textContent = 0;
+    document.getElementById('metricsKpiFlaggedDelta').textContent = '—';
   } else {
     const rows = agents.map(agent=>{
       const mine = curTasks.filter(t=>t.agent===agent).map(t=>parseFloat(t.processingHrs));
       const baseMine = baseTasks.filter(t=>t.agent===agent).map(t=>parseFloat(t.processingHrs));
       const curAvg = mine.length ? mine.reduce((a,b)=>a+b,0)/mine.length : null;
       const baseAvg = baseMine.length ? baseMine.reduce((a,b)=>a+b,0)/baseMine.length : null;
-      let pct = null, flagged = false;
+      let pct = null, flagged = false, reason = [];
       if(curAvg!==null && baseAvg!==null && baseAvg>0){
         pct = Math.round(100*(curAvg-baseAvg)/baseAvg);
-        if(pct>=20 && mine.length>=MIN_INSTANCES_FOR_COMPARISON) flagged = true;
+        if(pct>=20 && mine.length>=MIN_INSTANCES_FOR_COMPARISON){ flagged = true; reason.push('slower processing'); }
       }
       const theirAttendance = curAttendance.filter(a=>a.staff===agent);
       const attRate = theirAttendance.length ? Math.round(100*theirAttendance.filter(a=>a.status==='Present').length/theirAttendance.length) : null;
-      if(attRate!==null && attRate<75) flagged = true;
-      return {agent, curAvg, baseAvg, pct, attRate, flagged, n:mine.length};
+      if(attRate!==null && attRate<75){ flagged = true; reason.push('low attendance'); }
+      return {agent, curAvg, baseAvg, pct, attRate, flagged, reason, n:mine.length};
     }).sort((a,b)=>(b.flagged-a.flagged) || ((b.pct||0)-(a.pct||0)));
 
-    body.innerHTML = rows.map(r=>`
-      <tr>
-        <td><b>${r.agent}</b></td>
+    const flaggedCount = rows.filter(r=>r.flagged).length;
+    document.getElementById('metricsKpiFlagged').textContent = flaggedCount;
+    document.getElementById('metricsKpiFlaggedDelta').textContent = flaggedCount===0 ? 'All clear' : (flaggedCount===1?'1 staff member':`${flaggedCount} staff members`);
+
+    const visibleRows = showAll ? rows : rows.filter(r=>r.flagged);
+    if(visibleRows.length===0){
+      body.innerHTML = `<tr><td colspan="6"><div class="empty">${showAll ? 'No staff data for this period yet.' : 'No one needs attention right now — check "Show all staff" to see everyone.'}</div></td></tr>`;
+    } else {
+      body.innerHTML = visibleRows.map(r=>{
+        const trendArrow = r.pct===null ? '' : r.pct>0 ? '<span style="color:#B3204D;">▲</span> ' : r.pct<0 ? '<span style="color:#1f7a44;">▼</span> ' : '';
+        return `
+      <tr${r.flagged?' style="background:rgba(179,32,77,0.04);"':''}>
+        <td><b>${r.agent}</b>${r.flagged?` <span style="font-size:11px;color:rgba(46,3,38,0.5);">(${r.reason.join(', ')})</span>`:''}</td>
         <td>${r.curAvg!==null ? formatHrsMins(r.curAvg)+` <span style="color:rgba(46,3,38,0.45);font-size:11px;">(${r.n}x)</span>` : '—'}</td>
         <td>${r.baseAvg!==null ? formatHrsMins(r.baseAvg) : '—'}</td>
-        <td>${r.pct!==null ? (r.pct>=0?'+':'')+r.pct+'%' : '—'}</td>
+        <td>${r.pct!==null ? trendArrow+(r.pct>=0?'+':'')+r.pct+'%' : '—'}</td>
         <td>${r.attRate!==null ? r.attRate+'%' : '—'}</td>
         <td>${r.flagged ? '<span class="badge b-spike">⚠ Needs attention</span>' : '<span class="badge b-ok">On track</span>'}</td>
-      </tr>`).join('');
+      </tr>`;
+      }).join('');
+    }
   }
 
   // staff filter for notes
@@ -1411,6 +1601,7 @@ async function deleteNote(id){
   await saveOne('coachingNotes'); renderCoachingNotes(); toast('Deleted');
 }
 window.deleteNote = deleteNote;
+document.getElementById('metricsShowAllToggle').onchange = renderMetrics;
 document.getElementById('notesStaffFilter').onchange = renderCoachingNotes;
 document.getElementById('addNoteBtn').onclick = ()=>openNoteModal(null);
 document.getElementById('exportNotes').onclick = ()=>{
