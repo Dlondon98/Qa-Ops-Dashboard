@@ -93,6 +93,9 @@
   .b-na{background:#eee;color:#777;}
   .b-spike{background:#FFE1EC;color:#B3204D;}
   .b-ok{background:#DCF3E3;color:#1f7a44;}
+  .st-notstarted{background:#FFD9D9;color:#A3172F;}
+  .st-inprogress{background:#FFF0AD;color:#8A6D00;}
+  .st-completed{background:#D4F3DC;color:#1f7a44;}
 
   .icon-btn{background:none;border:none;cursor:pointer;color:var(--purple);opacity:0.7;padding:4px;font-size:13px;}
   .icon-btn:hover{opacity:1;}
@@ -181,9 +184,9 @@
   .cell-btn.empty-cell:hover{background:var(--blue-lt);color:var(--purple);border-color:var(--blue);}
   .cell-fill{width:100%;height:100%;border-radius:6px;padding:4px 2px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;transition:filter .1s;}
   .cell-btn:hover .cell-fill{filter:brightness(0.95);}
-  .cs-open{background:var(--orange-lt);}
-  .cs-progress{background:var(--blue-lt);}
-  .cs-done{background:#DCF3E3;}
+  .cs-open{background:#FFD9D9;}
+  .cs-progress{background:#FFF0AD;}
+  .cs-done{background:#D4F3DC;}
   .cs-na{background:#eee;}
   .cell-fill .who{font-size:11px;font-weight:800;color:var(--purple);line-height:1.1;}
   .cell-fill .st{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.02em;color:rgba(46,3,38,0.55);line-height:1.1;}
@@ -314,9 +317,9 @@
           </div>
           <div class="grid-wrap"><table class="week-table" id="weekTable"></table></div>
           <div class="grid-legend">
-            <span class="lg-item"><span class="lg-dot" style="background:var(--orange-lt);"></span> Not started</span>
-            <span class="lg-item"><span class="lg-dot" style="background:var(--blue-lt);"></span> In progress</span>
-            <span class="lg-item"><span class="lg-dot" style="background:#DCF3E3;"></span> Completed</span>
+            <span class="lg-item"><span class="lg-dot" style="background:#FFD9D9;"></span> Not started</span>
+            <span class="lg-item"><span class="lg-dot" style="background:#FFF0AD;"></span> In progress</span>
+            <span class="lg-item"><span class="lg-dot" style="background:#D4F3DC;"></span> Completed</span>
             <span class="lg-item"><span class="lg-dot" style="background:#eee;"></span> N/A</span>
             <span class="lg-item">Click a cell to start, complete, or edit it.</span>
           </div>
@@ -627,7 +630,7 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
 
 /* ---------------- badges ---------------- */
 function taskStatusBadge(s){
-  const cls = s==='Completed'?'b-done':s==='In Progress'?'b-progress':s==='N/A'?'b-na':'b-open';
+  const cls = s==='Completed'?'st-completed':s==='In Progress'?'st-inprogress':s==='N/A'?'b-na':'st-notstarted';
   return `<span class="badge ${cls}">${s}</span>`;
 }
 function attendanceBadge(s){
@@ -902,6 +905,13 @@ function updateWeekLabel(){
 }
 
 function initialsOf(name){ if(!name) return ''; return name.split(' ').map(p=>p[0]).slice(0,2).join('').toUpperCase(); }
+const STAFF_COLOR_PALETTE = ['#2E5EAA','#7B4B94','#1A7A8A','#4B3F72','#0E7C7B','#805B29','#3C6E71','#6A4C93','#264653','#457B9D','#6D597A','#355070'];
+function staffColor(name){
+  if(!name) return '#440B39';
+  let hash = 0;
+  for(let i=0;i<name.length;i++){ hash = (hash*31 + name.charCodeAt(i)) >>> 0; }
+  return STAFF_COLOR_PALETTE[hash % STAFF_COLOR_PALETTE.length];
+}
 
 function renderWeekGrid(){
   updateWeekLabel();
@@ -958,7 +968,7 @@ function cellHTML(date, task, shift){
     : entry.status;
   return `<button class="cell-btn${isOthers?' locked':''}" title="${escAttr(entry.task+' · '+hint)}" data-entry-id="${entry.id}">
     <div class="cell-fill ${cls}">
-      <span class="who">${isOthers?'🔒':who}</span>
+      <span class="who" style="${isOthers?'':'color:'+staffColor(entry.agent)+';'}">${isOthers?'🔒':who}</span>
       ${entry.agent ? `<span class="st">${shortStatus}</span>` : ''}
     </div>
   </button>`;
@@ -1373,7 +1383,7 @@ function renderTeam(){
       return `
       <div class="score-card${s.flagged?' flagged':''}">
         <div class="who">
-          <div class="avatar">${initials}</div>
+          <div class="avatar" style="background:${staffColor(s.agent)};">${initials}</div>
           <div><div class="name">${s.agent}</div>${s.flagged?`<span class="badge b-spike" style="margin-top:2px;">⚠ ${s.reason.join(', ')}</span>`:`<span class="badge b-ok" style="margin-top:2px;">On track</span>`}</div>
         </div>
         <div class="score-row"><span>Tasks completed</span><b>${s.theirTasksCount}</b></div>
