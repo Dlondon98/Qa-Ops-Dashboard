@@ -249,7 +249,7 @@
           <button id="periodWeeklyBtn">Weekly</button>
         </div>
         <span class="pill"><span class="dot"></span> Synced to cloud</span>
-        <button class="btn btn-ghost btn-sm manager-only" id="resetBtn">Reset demo data</button>
+        <button class="btn btn-ghost btn-sm manager-only" id="resetBtn" style="color:#B3204D;border-color:rgba(179,32,77,0.25);">Clear test data</button>
       </div>
     </div>
     <div class="content" id="content">
@@ -372,18 +372,26 @@
 
       <!-- ATTENDANCE -->
       <div class="view manager-only" id="view-attendance">
+        <div class="panel-head"><h2>Attendance Points <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· 6-month rolling window, per policy</span></h2></div>
+        <div class="table-wrap" style="margin-bottom:22px;"><div class="table-scroll">
+          <table>
+            <thead><tr><th>Staff</th><th>Points (6mo)</th><th>Stage</th></tr></thead>
+            <tbody id="pointsSummaryBody"></tbody>
+          </table>
+        </div></div>
+
         <div class="panel-head">
-          <h2>Attendance</h2>
+          <h2>Attendance Log</h2>
           <div class="filters">
             <input type="date" id="attendanceDateFilter">
-            <select id="attendanceStatusFilter"><option value="">All statuses</option><option>Present</option><option>Late</option><option>Absent</option><option>Excused</option></select>
+            <select id="attendanceStaffFilter"><option value="">All staff</option></select>
             <button class="btn btn-ghost btn-sm" id="exportAttendance">Export CSV</button>
-            <button class="btn btn-primary btn-sm" id="addAttendanceBtn">+ Log attendance</button>
+            <button class="btn btn-primary btn-sm" id="addAttendanceBtn">+ Log entry</button>
           </div>
         </div>
         <div class="table-wrap"><div class="table-scroll">
           <table>
-            <thead><tr><th>Date</th><th>Staff</th><th>Status</th><th>Clock-in</th><th>Notes</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Staff</th><th>Scheduled</th><th>Clock in / out</th><th>Violation</th><th>Notified?</th><th>Excused</th><th>Points</th><th>Notes</th><th></th></tr></thead>
             <tbody id="attendanceBody"></tbody>
           </table>
         </div></div>
@@ -405,7 +413,7 @@
         <div class="panel-head"><h2>Agent Breakdown</h2></div>
         <div class="table-wrap" style="margin-bottom:22px;"><div class="table-scroll">
           <table>
-            <thead><tr><th>Agent</th><th>Tasks completed</th><th>Avg. processing time</th><th>Total volume</th><th>Avg. lunch length</th><th>Attendance rate</th><th>Late / Absent</th></tr></thead>
+            <thead><tr><th>Agent</th><th>Tasks completed</th><th>Avg. processing time</th><th>Total volume</th><th>Avg. lunch length</th><th>Attendance points (6mo)</th></tr></thead>
             <tbody id="agentBreakdownBody"></tbody>
           </table>
         </div></div>
@@ -429,7 +437,7 @@
         <div class="kpi-grid" style="margin-bottom:18px;">
           <div class="kpi" style="--accent:#B3204D"><div class="label">Flagged staff</div><div class="value" id="metricsKpiFlagged">0</div><div class="delta" id="metricsKpiFlaggedDelta">&mdash;</div></div>
           <div class="kpi" style="--accent:var(--blue)"><div class="label">Team avg. processing time</div><div class="value" id="metricsKpiAvgTime">&mdash;</div><div class="delta">This period</div></div>
-          <div class="kpi" style="--accent:#1f7a44"><div class="label">Team attendance rate</div><div class="value" id="metricsKpiAttendance">&mdash;</div><div class="delta">This period</div></div>
+          <div class="kpi" style="--accent:#1f7a44"><div class="label">Avg. attendance points (6mo)</div><div class="value" id="metricsKpiAttendance">&mdash;</div><div class="delta">Per staff member</div></div>
           <div class="kpi" style="--accent:var(--orange)"><div class="label">Coaching notes logged</div><div class="value" id="metricsKpiNotes">0</div><div class="delta">This period</div></div>
         </div>
         <div class="panel-head">
@@ -440,7 +448,7 @@
         </div>
         <div class="table-wrap" style="margin-bottom:22px;"><div class="table-scroll">
           <table>
-            <thead><tr><th>Staff</th><th>Avg. time (this period)</th><th>Avg. time (baseline)</th><th>Change</th><th>Attendance rate</th><th></th></tr></thead>
+            <thead><tr><th>Staff</th><th>Avg. time (this period)</th><th>Avg. time (baseline)</th><th>Change</th><th>Attendance points (6mo)</th><th></th></tr></thead>
             <tbody id="metricsAlertsBody"></tbody>
           </table>
         </div></div>
@@ -500,6 +508,48 @@ function formatHrsMins(hrsDecimal){
   if(m===0) return h+'h';
   return h+'h '+m+'m';
 }
+
+/* ---------------- attendance points engine (per Gifthealth Attendance & Punctuality Policy) ---------------- */
+const VIOLATION_POINTS = {
+  'On Time': 0,
+  'Tardy ≤15 min': 0.5,
+  'Tardy >15 min': 1,
+  'Early Departure': 1,
+  'Absence': 2,
+  'No-Call/No-Show': 3
+};
+function minutesBetweenTimes(t1, t2){
+  if(!t1 || !t2) return null;
+  const [h1,m1] = t1.split(':').map(Number);
+  const [h2,m2] = t2.split(':').map(Number);
+  return (h2*60+m2) - (h1*60+m1);
+}
+function suggestViolation(schedStart, clockIn){
+  const diff = minutesBetweenTimes(schedStart, clockIn);
+  if(diff===null) return 'On Time';
+  if(diff<=0) return 'On Time';
+  if(diff<=15) return 'Tardy ≤15 min';
+  if(diff>120) return 'Absence'; // policy: tardiness exceeding 2 hours may be treated as an absence
+  return 'Tardy >15 min';
+}
+function computeAttendancePoints(entry){
+  if(entry.excused) return 0;
+  let pts = VIOLATION_POINTS[entry.violationType] || 0;
+  if(entry.violationType!=='On Time' && entry.notifiedProperly==='No') pts += 1;
+  return pts;
+}
+function rollingAttendancePoints(staff, asOfDate){
+  const cutoff = addDays(asOfDate, -182); // ~6-month backward rolling window per policy
+  return DB.attendance.filter(a=>a.staff===staff && a.date>cutoff && a.date<=asOfDate).reduce((s,a)=>s+(a.points||0),0);
+}
+function attendanceStage(pts){
+  if(pts>=12) return {label:'Termination review', cls:'b-spike'};
+  if(pts>=9) return {label:'Final Written Warning', cls:'b-spike'};
+  if(pts>=6) return {label:'Written Warning', cls:'b-open'};
+  if(pts>=3) return {label:'Verbal Counseling', cls:'b-open'};
+  return {label:'No action needed', cls:'b-ok'};
+}
+
 function computeTaskDuration(startedAt,completedAt){
   if(!startedAt || !completedAt) return '';
   const ms = new Date(completedAt.length<=16?completedAt+':00':completedAt) - new Date(startedAt.length<=16?startedAt+':00':startedAt);
@@ -546,59 +596,13 @@ function attachLiveSync(){
 }
 
 function seedDemoData(){
+  // Only seeds the real, reusable task list — no fake staff, tasks, lunch, or attendance data.
   DB.taskTemplates = DEFAULT_TASK_TEMPLATES.map(name=>({id:uid(), name}));
   DB.dailyTasks = [];
-  const agents = ['Rachel','Olivia','Aamari','Kayla'];
-  DB.staff = agents.map(name=>({id:uid(), name}));
-  for(let i=9;i>=0;i--){
-    const date = addDays(todayStr(), -i);
-    DEFAULT_TASK_TEMPLATES.slice(0,10).forEach(task=>{
-      ['AM','PM'].forEach(shift=>{
-        if(Math.random() < 0.15){ return; } // some days a task has no entry
-        const agent = agents[Math.floor(Math.random()*agents.length)];
-        const startHour = shift==='AM' ? 9 : 13;
-        const startedAt = date+'T'+String(startHour).padStart(2,'0')+':'+String(Math.floor(Math.random()*50)).padStart(2,'0');
-        const roll = Math.random();
-        let status, completedAt='', bestRx='', portal='', processingHrs='';
-        if(roll < 0.72){
-          status='Completed';
-          const hrs = +(Math.random()*3+0.05).toFixed(2);
-          completedAt = addMinutesISO(startedAt, Math.round(hrs*60));
-          processingHrs = hrs;
-          bestRx = Math.floor(Math.random()*35);
-          portal = Math.floor(Math.random()*15);
-        } else if(roll < 0.88){ status='In Progress'; }
-        else { status='Not Started'; }
-        DB.dailyTasks.push({
-          id:uid(), date, task, shift, agent, status,
-          startedBy: status==='Not Started'?'':agent, startedAt: status==='Not Started'?'':startedAt,
-          completedBy: status==='Completed'?agent:'', completedAt, processingHrs,
-          bestRx, portal, notes:''
-        });
-      });
-    });
-  }
+  DB.staff = [];
   DB.lunchLog = [];
-  for(let i=9;i>=0;i--){
-    const date = addDays(todayStr(), -i);
-    agents.forEach(agent=>{
-      if(Math.random()<0.1) return;
-      const outH = 11+Math.floor(Math.random()*2), outM = Math.floor(Math.random()*60);
-      const clockOutAt = date+'T'+String(outH).padStart(2,'0')+':'+String(outM).padStart(2,'0');
-      const dur = 25+Math.floor(Math.random()*20);
-      const clockInAt = addMinutesISO(clockOutAt, dur);
-      DB.lunchLog.push({id:uid(), date, staff:agent, clockOutAt, clockInAt, durationMin:dur});
-    });
-  }
   DB.attendance = [];
-  for(let i=9;i>=0;i--){
-    const date = addDays(todayStr(), -i);
-    agents.forEach(agent=>{
-      const roll = Math.random();
-      const status = roll<0.78 ? 'Present' : roll<0.9 ? 'Late' : roll<0.97 ? 'Absent' : 'Excused';
-      DB.attendance.push({id:uid(), date, staff:agent, status, clockIn:'', notes:''});
-    });
-  }
+  DB.coachingNotes = [];
 }
 
 /* ---------------- nav ---------------- */
@@ -633,9 +637,10 @@ function taskStatusBadge(s){
   const cls = s==='Completed'?'st-completed':s==='In Progress'?'st-inprogress':s==='N/A'?'b-na':'st-notstarted';
   return `<span class="badge ${cls}">${s}</span>`;
 }
-function attendanceBadge(s){
-  const cls = s==='Present'?'b-ok':s==='Late'?'b-open':s==='Absent'?'b-spike':'b-na';
-  return `<span class="badge ${cls}">${s}</span>`;
+function violationBadge(entry){
+  if(entry.excused) return `<span class="badge b-na">Excused</span>`;
+  const map = {'On Time':'b-ok','Tardy ≤15 min':'st-inprogress','Tardy >15 min':'st-inprogress','Early Departure':'st-inprogress','Absence':'st-notstarted','No-Call/No-Show':'st-notstarted'};
+  return `<span class="badge ${map[entry.violationType]||'b-na'}">${entry.violationType}</span>`;
 }
 
 /* ---------------- agent suggestions ---------------- */
@@ -695,75 +700,166 @@ document.getElementById('exportLunch').onclick = ()=>{
   downloadCSV(csv, 'gifthealth_lunch_log.csv'); toast('CSV downloaded');
 };
 
-/* ---------------- attendance ---------------- */
+/* ---------------- attendance (points-based, per policy) ---------------- */
 function renderAttendance(){
+  const asOf = todayStr();
+  const staffNames = [...new Set([...DB.staff.map(s=>s.name), ...DB.attendance.map(a=>a.staff)].filter(Boolean))].sort();
+
+  // points summary
+  const summaryBody = document.getElementById('pointsSummaryBody');
+  if(staffNames.length===0){
+    summaryBody.innerHTML = `<tr><td colspan="3"><div class="empty">No staff on the roster yet.</div></td></tr>`;
+  } else {
+    const summaryRows = staffNames.map(staff=>{
+      const pts = rollingAttendancePoints(staff, asOf);
+      const stage = attendanceStage(pts);
+      return {staff, pts, stage};
+    }).sort((a,b)=>b.pts-a.pts);
+    summaryBody.innerHTML = summaryRows.map(r=>`
+      <tr>
+        <td><b>${r.staff}</b></td>
+        <td>${r.pts}</td>
+        <td><span class="badge ${r.stage.cls}">${r.stage.label}</span></td>
+      </tr>`).join('');
+  }
+
+  // staff filter options
+  const sel = document.getElementById('attendanceStaffFilter');
+  const prevVal = sel.value;
+  sel.innerHTML = `<option value="">All staff</option>` + staffNames.map(s=>`<option value="${s}" ${s===prevVal?'selected':''}>${s}</option>`).join('');
+
+  // log table
   const dateF = document.getElementById('attendanceDateFilter').value;
-  const statusF = document.getElementById('attendanceStatusFilter').value;
-  const rows = DB.attendance.filter(a=>(!dateF || a.date===dateF) && (!statusF || a.status===statusF)).sort((a,b)=>b.date.localeCompare(a.date));
+  const staffF = sel.value;
+  const rows = DB.attendance.filter(a=>(!dateF || a.date===dateF) && (!staffF || a.staff===staffF)).sort((a,b)=>b.date.localeCompare(a.date));
   const body = document.getElementById('attendanceBody');
-  if(rows.length===0){ body.innerHTML = `<tr><td colspan="6"><div class="empty">No attendance logged for this filter.</div></td></tr>`; return; }
+  if(rows.length===0){ body.innerHTML = `<tr><td colspan="10"><div class="empty">No attendance logged for this filter.</div></td></tr>`; return; }
   body.innerHTML = rows.map(a=>`
     <tr>
       <td>${fmtDate(a.date)}</td>
       <td>${a.staff}</td>
-      <td>${attendanceBadge(a.status)}</td>
-      <td>${a.clockIn || '—'}</td>
-      <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${a.notes||''}</td>
+      <td>${a.schedStart||'—'}${a.schedEnd?' – '+a.schedEnd:''}</td>
+      <td>${a.clockIn||'—'}${a.clockOut?' – '+a.clockOut:''}</td>
+      <td>${violationBadge(a)}</td>
+      <td>${a.violationType==='On Time' ? '—' : (a.notifiedProperly||'—')}</td>
+      <td>${a.excused ? (a.excuseReason||'Yes') : '—'}</td>
+      <td><b>${a.points||0}</b></td>
+      <td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${a.notes||''}</td>
       <td>
         <button class="icon-btn" title="Edit" onclick="openAttendanceModal(DB.attendance.find(x=>x.id==='${a.id}'))">✎</button>
         <button class="icon-btn" title="Delete" onclick="deleteAttendance('${a.id}')">✕</button>
       </td>
     </tr>`).join('');
 }
+
 function openAttendanceModal(existing){
-  const a = existing || {id:null, date:document.getElementById('attendanceDateFilter').value||todayStr(), staff:'', status:'Present', clockIn:'', notes:''};
+  const defaultStaff = existing ? existing.staff : '';
+  const staffRoster = DB.staff.find(s=>s.name===defaultStaff);
+  const a = existing || {
+    id:null, date:document.getElementById('attendanceDateFilter').value||todayStr(), staff:'',
+    schedStart: staffRoster?.schedStart||'', schedEnd: staffRoster?.schedEnd||'',
+    clockIn:'', clockOut:'', violationType:'On Time', notifiedProperly:'N/A',
+    excused:false, excuseReason:'', notes:''
+  };
+  const excuseOptions = ['PTO with prior approval','Approved protected leave (FMLA/ADA/sick)',"Workers' compensation leave",'Jury duty','Bereavement leave','Other legally protected absence','Manager discretion'];
   modalBody.innerHTML = `
-    <h3>${existing?'Edit attendance':'Log attendance'}</h3>
+    <h3>${existing?'Edit attendance entry':'Log attendance entry'}</h3>
     <div class="form-grid">
       <div class="field"><label>Date</label><input type="date" id="f_date" value="${a.date}"></div>
       <div class="field"><label>Staff</label><input type="text" id="f_staff" value="${escAttr(a.staff)}" list="agentSuggestions"></div>
-      <div class="field"><label>Status</label><select id="f_status">
-        <option ${a.status==='Present'?'selected':''}>Present</option>
-        <option ${a.status==='Late'?'selected':''}>Late</option>
-        <option ${a.status==='Absent'?'selected':''}>Absent</option>
-        <option ${a.status==='Excused'?'selected':''}>Excused</option>
+      <div class="field"><label>Scheduled start</label><input type="time" id="f_schedStart" value="${a.schedStart||''}"></div>
+      <div class="field"><label>Scheduled end</label><input type="time" id="f_schedEnd" value="${a.schedEnd||''}"></div>
+      <div class="field"><label>Clock in</label><input type="time" id="f_clockIn" value="${a.clockIn||''}"></div>
+      <div class="field"><label>Clock out</label><input type="time" id="f_clockOut" value="${a.clockOut||''}"></div>
+      <div class="field full"><label>Violation type</label><select id="f_violation">
+        ${Object.keys(VIOLATION_POINTS).map(v=>`<option ${a.violationType===v?'selected':''}>${v}</option>`).join('')}
       </select></div>
-      <div class="field"><label>Clock-in time (optional)</label><input type="text" id="f_clockIn" value="${a.clockIn||''}" placeholder="e.g. 9:14 AM"></div>
-      <div class="field full"><label>Notes</label><textarea id="f_notes" rows="2">${a.notes||''}</textarea></div>
+      <div class="field"><label>Followed call-off/notification procedure?</label><select id="f_notified">
+        <option ${a.notifiedProperly==='N/A'?'selected':''}>N/A</option>
+        <option ${a.notifiedProperly==='Yes'?'selected':''}>Yes</option>
+        <option ${a.notifiedProperly==='No'?'selected':''}>No</option>
+      </select></div>
+      <div class="field"><label>Points (auto-calculated)</label><input type="text" id="f_pointsPreview" value="" disabled style="font-weight:700;color:var(--purple);"></div>
+      <div class="field full" style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+        <input type="checkbox" id="f_excused" ${a.excused?'checked':''} style="width:auto;">
+        <label style="margin:0;">Excuse this occurrence (zeroes the points, keeps the record)</label>
+      </div>
+      <div class="field full" id="excuseReasonWrap" style="display:${a.excused?'block':'none'};">
+        <label>Excuse reason</label>
+        <select id="f_excuseReason">${excuseOptions.map(o=>`<option ${a.excuseReason===o?'selected':''}>${o}</option>`).join('')}</select>
+      </div>
+      <div class="field full"><label>Notes (documentation, context)</label><textarea id="f_notes" rows="2">${a.notes||''}</textarea></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" id="saveAttendanceBtn">Save</button>
     </div>`;
   overlay.classList.add('active');
+
+  const updatePreview = ()=>{
+    const draft = {
+      violationType: document.getElementById('f_violation').value,
+      notifiedProperly: document.getElementById('f_notified').value,
+      excused: document.getElementById('f_excused').checked
+    };
+    document.getElementById('f_pointsPreview').value = computeAttendancePoints(draft) + ' pt(s)';
+  };
+  document.getElementById('f_violation').onchange = updatePreview;
+  document.getElementById('f_notified').onchange = updatePreview;
+  document.getElementById('f_excused').onchange = (e)=>{
+    document.getElementById('excuseReasonWrap').style.display = e.target.checked ? 'block' : 'none';
+    updatePreview();
+  };
+  document.getElementById('f_clockIn').oninput = ()=>{
+    const schedStart = document.getElementById('f_schedStart').value;
+    const clockIn = document.getElementById('f_clockIn').value;
+    if(schedStart && clockIn){
+      document.getElementById('f_violation').value = suggestViolation(schedStart, clockIn);
+      updatePreview();
+    }
+  };
+  updatePreview();
+
   document.getElementById('saveAttendanceBtn').onclick = async ()=>{
     const staff = document.getElementById('f_staff').value.trim();
     if(!staff){ toast('Enter a staff name'); return; }
     const rec = {
       id: a.id || uid(),
       date: document.getElementById('f_date').value || todayStr(),
-      staff, status: document.getElementById('f_status').value,
+      staff,
+      schedStart: document.getElementById('f_schedStart').value,
+      schedEnd: document.getElementById('f_schedEnd').value,
       clockIn: document.getElementById('f_clockIn').value,
+      clockOut: document.getElementById('f_clockOut').value,
+      violationType: document.getElementById('f_violation').value,
+      notifiedProperly: document.getElementById('f_notified').value,
+      excused: document.getElementById('f_excused').checked,
+      excuseReason: document.getElementById('f_excused').checked ? document.getElementById('f_excuseReason').value : '',
       notes: document.getElementById('f_notes').value
     };
+    rec.points = computeAttendancePoints(rec);
     if(existing){ DB.attendance = DB.attendance.map(x=>x.id===rec.id?rec:x); } else { DB.attendance.push(rec); }
-    await saveOne('attendance'); closeModal(); renderAttendance(); renderTeam(); refreshAgentSuggestions(); toast('Attendance saved');
+    await saveOne('attendance'); closeModal(); renderAttendance(); renderTeam(); renderMetrics(); refreshAgentSuggestions(); toast(`Saved — ${rec.points} point(s) assessed`);
   };
 }
 window.openAttendanceModal = openAttendanceModal;
 async function deleteAttendance(id){
   if(!confirm('Delete this attendance entry?')) return;
   DB.attendance = DB.attendance.filter(a=>a.id!==id);
-  await saveOne('attendance'); renderAttendance(); renderTeam(); toast('Deleted');
+  await saveOne('attendance'); renderAttendance(); renderTeam(); renderMetrics(); toast('Deleted');
 }
 window.deleteAttendance = deleteAttendance;
 document.getElementById('attendanceDateFilter').onchange = renderAttendance;
-document.getElementById('attendanceStatusFilter').onchange = renderAttendance;
+document.getElementById('attendanceStaffFilter').onchange = renderAttendance;
 document.getElementById('addAttendanceBtn').onclick = ()=>openAttendanceModal(null);
 document.getElementById('exportAttendance').onclick = ()=>{
   const csv = toCSV(DB.attendance, [
-    {label:'Date', get:r=>r.date},{label:'Staff', get:r=>r.staff},{label:'Status', get:r=>r.status},
-    {label:'Clock-in', get:r=>r.clockIn},{label:'Notes', get:r=>r.notes}
+    {label:'Date', get:r=>r.date},{label:'Staff', get:r=>r.staff},
+    {label:'Scheduled Start', get:r=>r.schedStart},{label:'Scheduled End', get:r=>r.schedEnd},
+    {label:'Clock In', get:r=>r.clockIn},{label:'Clock Out', get:r=>r.clockOut},
+    {label:'Violation Type', get:r=>r.violationType},{label:'Notified Properly', get:r=>r.notifiedProperly},
+    {label:'Excused', get:r=>r.excused?'Yes':'No'},{label:'Excuse Reason', get:r=>r.excuseReason},
+    {label:'Points', get:r=>r.points},{label:'Notes', get:r=>r.notes}
   ]);
   downloadCSV(csv, 'gifthealth_attendance.csv'); toast('CSV downloaded');
 };
@@ -1213,7 +1309,8 @@ window.removeTemplate = removeTemplate;
 function openManageStaffModal(){
   modalBody.innerHTML = `
     <h3>Manage staff</h3>
-    <div id="staffListWrap" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:300px;overflow-y:auto;"></div>
+    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-6px 0 12px;">Set each person's scheduled shift so Attendance can tell if a clock-in was actually late.</p>
+    <div id="staffListWrap" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;max-height:340px;overflow-y:auto;"></div>
     <div class="form-grid"><div class="field full"><label>Add staff member</label><input type="text" id="f_newStaff" placeholder="Full name"></div></div>
     <div class="modal-actions" style="justify-content:space-between;">
       <button class="btn btn-primary btn-sm" id="addStaffBtn2">+ Add staff</button>
@@ -1223,10 +1320,18 @@ function openManageStaffModal(){
     const wrap = document.getElementById('staffListWrap');
     if(DB.staff.length===0){ wrap.innerHTML = `<div class="empty" style="padding:20px;">No staff added yet.</div>`; return; }
     wrap.innerHTML = DB.staff.map(s=>`
-      <div style="display:flex;gap:6px;align-items:center;padding:6px 8px;background:var(--beige);border-radius:8px;">
-        <input type="text" value="${escAttr(s.name)}" id="staffname_${s.id}" style="flex:1;">
-        <button class="icon-btn" title="Save name" onclick="renameStaff('${s.id}')">✓</button>
-        <button class="icon-btn" title="Remove" onclick="removeStaff('${s.id}')">✕</button>
+      <div style="display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--beige);border-radius:8px;">
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input type="text" value="${escAttr(s.name)}" id="staffname_${s.id}" style="flex:1;">
+          <button class="icon-btn" title="Save" onclick="renameStaff('${s.id}')">✓</button>
+          <button class="icon-btn" title="Remove" onclick="removeStaff('${s.id}')">✕</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;font-size:11px;color:rgba(46,3,38,0.6);">
+          <span>Scheduled:</span>
+          <input type="time" value="${s.schedStart||''}" id="schedstart_${s.id}" style="flex:1;">
+          <span>to</span>
+          <input type="time" value="${s.schedEnd||''}" id="schedend_${s.id}" style="flex:1;">
+        </div>
       </div>`).join('');
   };
   renderList();
@@ -1236,7 +1341,7 @@ function openManageStaffModal(){
     const name = document.getElementById('f_newStaff').value.trim();
     if(!name){ toast('Enter a name'); return; }
     if(DB.staff.some(s=>s.name.toLowerCase()===name.toLowerCase())){ toast('That name is already on the list'); return; }
-    DB.staff.push({id:uid(), name});
+    DB.staff.push({id:uid(), name, schedStart:'', schedEnd:''});
     await saveOne('staff');
     document.getElementById('f_newStaff').value='';
     renderList();
@@ -1251,10 +1356,12 @@ async function renameStaff(id){
   if(!newName){ toast('Name cannot be blank'); return; }
   const s = DB.staff.find(x=>x.id===id); if(!s) return;
   s.name = newName;
+  s.schedStart = document.getElementById('schedstart_'+id).value;
+  s.schedEnd = document.getElementById('schedend_'+id).value;
   await saveOne('staff');
   refreshAgentSuggestions();
   renderTeam();
-  toast('Name updated — note past logged tasks keep the old name');
+  toast('Saved — note past logged tasks keep the old name');
 }
 window.renameStaff = renameStaff;
 async function removeStaff(id){
@@ -1346,12 +1453,12 @@ function renderTaskMatrix(range, agents){
 function renderTeam(){
   const range = periodRange(dashPeriod);
   const baseline = baselineRange(dashPeriod);
+  const asOf = todayStr();
   const tasksInRange = DB.dailyTasks.filter(t=>inRange(t.date, range) && t.status==='Completed');
   const baseTasksInRange = DB.dailyTasks.filter(t=>inRange(t.date, baseline) && t.status==='Completed' && t.processingHrs!==''&&t.processingHrs!=null);
   const lunchInRange = DB.lunchLog.filter(l=>inRange(l.date, range) && l.durationMin!=='' && l.durationMin!=null);
-  const attendanceInRange = DB.attendance.filter(a=>inRange(a.date, range));
 
-  const agents = [...new Set([...DB.staff.map(s=>s.name), ...tasksInRange.map(t=>t.agent), ...lunchInRange.map(l=>l.staff), ...attendanceInRange.map(a=>a.staff)].filter(Boolean))].sort();
+  const agents = [...new Set([...DB.staff.map(s=>s.name), ...tasksInRange.map(t=>t.agent), ...lunchInRange.map(l=>l.staff), ...DB.attendance.map(a=>a.staff)].filter(Boolean))].sort();
 
   renderTaskMatrix(range, agents);
 
@@ -1362,11 +1469,8 @@ function renderTeam(){
     const volume = theirTasks.reduce((s,t)=>s+(parseFloat(t.bestRx)||0)+(parseFloat(t.portal)||0),0);
     const theirLunch = lunchInRange.filter(l=>l.staff===agent);
     const avgLunch = theirLunch.length ? (theirLunch.reduce((s,l)=>s+(parseFloat(l.durationMin)||0),0)/theirLunch.length) : null;
-    const theirAttendance = attendanceInRange.filter(a=>a.staff===agent);
-    const presentCount = theirAttendance.filter(a=>a.status==='Present').length;
-    const lateCount = theirAttendance.filter(a=>a.status==='Late').length;
-    const absentCount = theirAttendance.filter(a=>a.status==='Absent').length;
-    const attRate = theirAttendance.length ? Math.round(100*presentCount/theirAttendance.length) : null;
+    const attPoints = rollingAttendancePoints(agent, asOf);
+    const attStage = attendanceStage(attPoints);
     const baseMine = baseTasksInRange.filter(t=>t.agent===agent).map(t=>parseFloat(t.processingHrs));
     const baseAvg = baseMine.length ? baseMine.reduce((a,b)=>a+b,0)/baseMine.length : null;
     let pct = null, flagged = false, reason = [];
@@ -1374,9 +1478,9 @@ function renderTeam(){
       pct = Math.round(100*(avgTime-baseAvg)/baseAvg);
       if(pct>=20 && withTime.length>=MIN_INSTANCES_FOR_COMPARISON){ flagged = true; reason.push('slower processing'); }
     }
-    if(attRate!==null && attRate<75){ flagged = true; reason.push('low attendance'); }
+    if(attPoints>=3){ flagged = true; reason.push('attendance points'); }
     const notesForAgent = DB.coachingNotes.filter(n=>n.staff===agent).sort((a,b)=>b.date.localeCompare(a.date));
-    return { agent, theirTasksCount:theirTasks.length, avgTime, volume, avgLunch, attRate, lateCount, absentCount, hasAttendance:theirAttendance.length>0, pct, flagged, reason, latestNote: notesForAgent[0]||null, noteCount: notesForAgent.length };
+    return { agent, theirTasksCount:theirTasks.length, avgTime, volume, avgLunch, attPoints, attStage, pct, flagged, reason, latestNote: notesForAgent[0]||null, noteCount: notesForAgent.length };
   });
 
   // Direct reports overview cards
@@ -1387,7 +1491,7 @@ function renderTeam(){
     const sorted = [...stats].sort((a,b)=>(b.flagged-a.flagged) || (a.agent.localeCompare(b.agent)));
     grid.innerHTML = sorted.map(s=>{
       const initials = s.agent.split(' ').map(p=>p[0]).slice(0,2).join('').toUpperCase();
-      const attBadge = s.attRate!==null ? `<span class="badge ${s.attRate>=90?'b-ok':s.attRate>=75?'b-open':'b-spike'}">${s.attRate}%</span>` : '—';
+      const attBadge = `<span class="badge ${s.attStage.cls}">${s.attPoints}pt · ${s.attStage.label}</span>`;
       return `
       <div class="score-card${s.flagged?' flagged':''}">
         <div class="who">
@@ -1396,7 +1500,7 @@ function renderTeam(){
         </div>
         <div class="score-row"><span>Tasks completed</span><b>${s.theirTasksCount}</b></div>
         <div class="score-row"><span>Avg. processing time</span><b>${s.avgTime!==null?formatHrsMins(s.avgTime):'—'}</b></div>
-        <div class="score-row"><span>Attendance rate</span><b>${attBadge}</b></div>
+        <div class="score-row"><span>Attendance (6mo)</span><b>${attBadge}</b></div>
         <div class="score-row"><span>Coaching notes</span><b>${s.noteCount}</b></div>
         <div class="score-card-actions">
           <button class="btn btn-ghost btn-sm" onclick="jumpToPersonal('${escAttr(s.agent)}')">View details</button>
@@ -1408,18 +1512,16 @@ function renderTeam(){
 
   const agentBody = document.getElementById('agentBreakdownBody');
   if(agents.length===0){
-    agentBody.innerHTML = `<tr><td colspan="7"><div class="empty">No staff on the roster yet. Use "Manage staff" in Daily Tasks to add some.</div></td></tr>`;
+    agentBody.innerHTML = `<tr><td colspan="6"><div class="empty">No staff on the roster yet. Use "Manage staff" in Daily Tasks to add some.</div></td></tr>`;
   } else {
     agentBody.innerHTML = stats.map(s=>{
-      const attClass = s.attRate===null ? '' : s.attRate>=90 ? 'b-ok' : s.attRate>=75 ? 'b-open' : 'b-spike';
       return `<tr>
         <td><b>${s.agent}</b></td>
         <td>${s.theirTasksCount}</td>
         <td>${s.avgTime!==null ? formatHrsMins(s.avgTime) : '—'}</td>
         <td>${Math.round(s.volume)}</td>
         <td>${s.avgLunch!==null ? Math.round(s.avgLunch)+' min' : '—'}</td>
-        <td>${s.attRate!==null ? `<span class="badge ${attClass}">${s.attRate}%</span>` : '—'}</td>
-        <td>${s.hasAttendance ? `${s.lateCount} / ${s.absentCount}` : '—'}</td>
+        <td><span class="badge ${s.attStage.cls}">${s.attPoints}pt</span></td>
       </tr>`;
     }).join('');
   }
@@ -1489,9 +1591,9 @@ document.getElementById('personalAgentSelect').onchange = renderPersonal;
 function renderMetrics(){
   const range = periodRange(dashPeriod);
   const baseline = baselineRange(dashPeriod);
+  const asOf = todayStr();
   const curTasks = DB.dailyTasks.filter(t=>inRange(t.date, range) && t.status==='Completed' && t.processingHrs!==''&&t.processingHrs!=null);
   const baseTasks = DB.dailyTasks.filter(t=>inRange(t.date, baseline) && t.status==='Completed' && t.processingHrs!==''&&t.processingHrs!=null);
-  const curAttendance = DB.attendance.filter(a=>inRange(a.date, range));
   const curNotes = DB.coachingNotes.filter(n=>inRange(n.date, range));
 
   const agents = [...new Set([...DB.staff.map(s=>s.name), ...curTasks.map(t=>t.agent)].filter(Boolean))].sort();
@@ -1502,9 +1604,8 @@ function renderMetrics(){
   const allCurTimes = curTasks.map(t=>parseFloat(t.processingHrs));
   const teamAvgTime = allCurTimes.length ? allCurTimes.reduce((a,b)=>a+b,0)/allCurTimes.length : null;
   document.getElementById('metricsKpiAvgTime').textContent = teamAvgTime!==null ? formatHrsMins(teamAvgTime) : '—';
-  const teamPresent = curAttendance.filter(a=>a.status==='Present').length;
-  const teamAttRate = curAttendance.length ? Math.round(100*teamPresent/curAttendance.length) : null;
-  document.getElementById('metricsKpiAttendance').textContent = teamAttRate!==null ? teamAttRate+'%' : '—';
+  const totalAttPoints = agents.reduce((s,agent)=>s+rollingAttendancePoints(agent, asOf), 0);
+  document.getElementById('metricsKpiAttendance').textContent = agents.length ? (totalAttPoints/agents.length).toFixed(1)+' avg pts' : '—';
   document.getElementById('metricsKpiNotes').textContent = curNotes.length;
 
   if(agents.length===0){
@@ -1522,10 +1623,10 @@ function renderMetrics(){
         pct = Math.round(100*(curAvg-baseAvg)/baseAvg);
         if(pct>=20 && mine.length>=MIN_INSTANCES_FOR_COMPARISON){ flagged = true; reason.push('slower processing'); }
       }
-      const theirAttendance = curAttendance.filter(a=>a.staff===agent);
-      const attRate = theirAttendance.length ? Math.round(100*theirAttendance.filter(a=>a.status==='Present').length/theirAttendance.length) : null;
-      if(attRate!==null && attRate<75){ flagged = true; reason.push('low attendance'); }
-      return {agent, curAvg, baseAvg, pct, attRate, flagged, reason, n:mine.length};
+      const attPoints = rollingAttendancePoints(agent, asOf);
+      const attStage = attendanceStage(attPoints);
+      if(attPoints>=3){ flagged = true; reason.push(attStage.label.toLowerCase()); }
+      return {agent, curAvg, baseAvg, pct, attPoints, attStage, flagged, reason, n:mine.length};
     }).sort((a,b)=>(b.flagged-a.flagged) || ((b.pct||0)-(a.pct||0)));
 
     const flaggedCount = rows.filter(r=>r.flagged).length;
@@ -1544,7 +1645,7 @@ function renderMetrics(){
         <td>${r.curAvg!==null ? formatHrsMins(r.curAvg)+` <span style="color:rgba(46,3,38,0.45);font-size:11px;">(${r.n}x)</span>` : '—'}</td>
         <td>${r.baseAvg!==null ? formatHrsMins(r.baseAvg) : '—'}</td>
         <td>${r.pct!==null ? trendArrow+(r.pct>=0?'+':'')+r.pct+'%' : '—'}</td>
-        <td>${r.attRate!==null ? r.attRate+'%' : '—'}</td>
+        <td><span class="badge ${r.attStage.cls}">${r.attPoints}pt</span></td>
         <td>${r.flagged ? '<span class="badge b-spike">⚠ Needs attention</span>' : '<span class="badge b-ok">On track</span>'}</td>
       </tr>`;
       }).join('');
@@ -1810,8 +1911,15 @@ document.getElementById('exportTasks').onclick = ()=>{
   downloadCSV(csv, 'gifthealth_daily_tasks.csv'); toast('CSV downloaded — open in Excel or import to Google Sheets');
 };
 document.getElementById('resetBtn').onclick = async ()=>{
-  if(!confirm('This clears all data in Firestore and reloads demo data. Continue?')) return;
-  seedDemoData(); await saveAll(); renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderMetrics(); refreshAgentSuggestions(); toast('Demo data reset');
+  if(!confirm("Clear all test data? This wipes staff, daily task entries, lunch log, attendance log, and coaching notes from Firestore. Your task list (Manage task list) is NOT affected. This can't be undone.")) return;
+  DB.staff = [];
+  DB.dailyTasks = [];
+  DB.lunchLog = [];
+  DB.attendance = [];
+  DB.coachingNotes = [];
+  await saveAll();
+  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderMetrics(); refreshAgentSuggestions();
+  toast('Test data cleared');
 };
 
 /* ---------------- init ---------------- */
