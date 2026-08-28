@@ -386,6 +386,8 @@
             <input type="date" id="attendanceDateFilter">
             <select id="attendanceStaffFilter"><option value="">All staff</option></select>
             <button class="btn btn-ghost btn-sm" id="exportAttendance">Export CSV</button>
+            <button class="btn btn-ghost btn-sm" id="logPtoBtn">+ Log PTO</button>
+            <button class="btn btn-ghost btn-sm" id="logCallOffBtn">+ Log Call-Off</button>
             <button class="btn btn-primary btn-sm" id="addAttendanceBtn">+ Log entry</button>
           </div>
         </div>
@@ -738,8 +740,8 @@ function renderAttendance(){
     <tr>
       <td>${fmtDate(a.date)}</td>
       <td>${a.staff}</td>
-      <td>${a.schedStart||'—'}${a.schedEnd?' – '+a.schedEnd:''}</td>
-      <td>${a.clockIn||'—'}${a.clockOut?' – '+a.clockOut:''}</td>
+      <td>${a.schedStart?fmt12h(a.schedStart):'—'}${a.schedEnd?' – '+fmt12h(a.schedEnd):''}</td>
+      <td>${a.clockIn?fmt12h(a.clockIn):'—'}${a.clockOut?' – '+fmt12h(a.clockOut):''}</td>
       <td>${violationBadge(a)}</td>
       <td>${a.violationType==='On Time' ? '—' : (a.notifiedProperly||'—')}</td>
       <td>${a.excused ? (a.excuseReason||'Yes') : '—'}</td>
@@ -752,49 +754,106 @@ function renderAttendance(){
     </tr>`).join('');
 }
 
-function openAttendanceModal(existing){
-  const defaultStaff = existing ? existing.staff : '';
-  const staffRoster = DB.staff.find(s=>s.name===defaultStaff);
-  const a = existing || {
+function fmt12h(t){
+  if(!t) return '';
+  const [h,m] = t.split(':').map(Number);
+  const ampm = h>=12?'PM':'AM';
+  const h12 = h%12===0?12:h%12;
+  return `${h12}:${String(m).padStart(2,'0')} ${ampm}`;
+}
+function openAttendanceModal(existing, prefill){
+  const a = existing || prefill || {
     id:null, date:document.getElementById('attendanceDateFilter').value||todayStr(), staff:'',
-    schedStart: staffRoster?.schedStart||'', schedEnd: staffRoster?.schedEnd||'',
+    schedStart:'', schedEnd:'', scheduleOverride:false,
     clockIn:'', clockOut:'', violationType:'On Time', notifiedProperly:'N/A',
     excused:false, excuseReason:'', notes:''
   };
+  if(DB.staff.length===0){
+    modalBody.innerHTML = `<h3>Log attendance entry</h3><div class="empty" style="padding:20px 0;">Add staff to the roster first — go to Daily Tasks → "Manage staff."</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>`;
+    overlay.classList.add('active');
+    return;
+  }
   const excuseOptions = ['PTO with prior approval','Approved protected leave (FMLA/ADA/sick)',"Workers' compensation leave",'Jury duty','Bereavement leave','Other legally protected absence','Manager discretion'];
+  const staffOpts = DB.staff.map(s=>s.name).sort().map(n=>`<option value="${escAttr(n)}" ${n===a.staff?'selected':''}>${n}</option>`).join('');
+  const hasOverride = existing ? (existing.scheduleOverride || false) : false;
+
   modalBody.innerHTML = `
-    <h3>${existing?'Edit attendance entry':'Log attendance entry'}</h3>
+    <h3>${existing?'Edit attendance entry':(prefill?prefill._title:'Log attendance entry')}</h3>
     <div class="form-grid">
       <div class="field"><label>Date</label><input type="date" id="f_date" value="${a.date}"></div>
-      <div class="field"><label>Staff</label><input type="text" id="f_staff" value="${escAttr(a.staff)}" list="agentSuggestions"></div>
-      <div class="field"><label>Scheduled start</label><input type="time" id="f_schedStart" value="${a.schedStart||''}"></div>
-      <div class="field"><label>Scheduled end</label><input type="time" id="f_schedEnd" value="${a.schedEnd||''}"></div>
-      <div class="field"><label>Clock in</label><input type="time" id="f_clockIn" value="${a.clockIn||''}"></div>
-      <div class="field"><label>Clock out</label><input type="time" id="f_clockOut" value="${a.clockOut||''}"></div>
+      <div class="field"><label>Staff</label><select id="f_staff">${staffOpts}</select></div>
+      <div class="field full" id="timeFieldsGroup" style="display:contents;">
+        <div class="field full" style="background:var(--beige);border-radius:8px;padding:8px 10px;font-size:12.5px;">
+          Scheduled: <b id="schedDisplay">—</b>
+          <label style="float:right;font-size:11px;font-weight:600;cursor:pointer;"><input type="checkbox" id="f_override" style="width:auto;vertical-align:middle;"> Adjust for this entry</label>
+        </div>
+        <div class="field" id="schedStartWrap" style="display:none;"><label>Scheduled start (this entry)</label><input type="time" id="f_schedStart" value="${a.schedStart||''}"></div>
+        <div class="field" id="schedEndWrap" style="display:none;"><label>Scheduled end (this entry)</label><input type="time" id="f_schedEnd" value="${a.schedEnd||''}"></div>
+        <div class="field"><label>Clock in</label><input type="time" id="f_clockIn" value="${a.clockIn||''}"></div>
+        <div class="field"><label>Clock out</label><input type="time" id="f_clockOut" value="${a.clockOut||''}"></div>
+      </div>
       <div class="field full"><label>Violation type</label><select id="f_violation">
         ${Object.keys(VIOLATION_POINTS).map(v=>`<option ${a.violationType===v?'selected':''}>${v}</option>`).join('')}
       </select></div>
-      <div class="field"><label>Followed call-off/notification procedure?</label><select id="f_notified">
+      <div class="field"><label>Followed call-off procedure?</label><select id="f_notified">
         <option ${a.notifiedProperly==='N/A'?'selected':''}>N/A</option>
         <option ${a.notifiedProperly==='Yes'?'selected':''}>Yes</option>
         <option ${a.notifiedProperly==='No'?'selected':''}>No</option>
       </select></div>
-      <div class="field"><label>Points (auto-calculated)</label><input type="text" id="f_pointsPreview" value="" disabled style="font-weight:700;color:var(--purple);"></div>
-      <div class="field full" style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+      <div class="field"><label>Points</label><input type="text" id="f_pointsPreview" value="" disabled style="font-weight:700;color:var(--purple);"></div>
+      <div class="field full" style="display:flex;align-items:center;gap:8px;margin-top:2px;">
         <input type="checkbox" id="f_excused" ${a.excused?'checked':''} style="width:auto;">
         <label style="margin:0;">Excuse this occurrence (zeroes the points, keeps the record)</label>
       </div>
       <div class="field full" id="excuseReasonWrap" style="display:${a.excused?'block':'none'};">
-        <label>Excuse reason</label>
         <select id="f_excuseReason">${excuseOptions.map(o=>`<option ${a.excuseReason===o?'selected':''}>${o}</option>`).join('')}</select>
       </div>
-      <div class="field full"><label>Notes (documentation, context)</label><textarea id="f_notes" rows="2">${a.notes||''}</textarea></div>
+      <div class="field full"><label>Notes</label><textarea id="f_notes" rows="2" placeholder="Documentation or context">${a.notes||''}</textarea></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" id="saveAttendanceBtn">Save</button>
     </div>`;
   overlay.classList.add('active');
+
+  const rosterSchedule = (name)=>{ const s = DB.staff.find(x=>x.name===name); return s ? {start:s.schedStart||'', end:s.schedEnd||''} : {start:'',end:''}; };
+
+  const refreshScheduleDisplay = ()=>{
+    const name = document.getElementById('f_staff').value;
+    const sched = rosterSchedule(name);
+    const overrideOn = document.getElementById('f_override').checked;
+    if(!overrideOn){
+      document.getElementById('f_schedStart').value = sched.start;
+      document.getElementById('f_schedEnd').value = sched.end;
+    }
+    const start = document.getElementById('f_schedStart').value;
+    const end = document.getElementById('f_schedEnd').value;
+    document.getElementById('schedDisplay').textContent = (start||end) ? `${fmt12h(start)} – ${fmt12h(end)}` : 'not set for this person';
+  };
+
+  document.getElementById('f_staff').onchange = refreshScheduleDisplay;
+  document.getElementById('f_override').onchange = (e)=>{
+    document.getElementById('schedStartWrap').style.display = e.target.checked ? '' : 'none';
+    document.getElementById('schedEndWrap').style.display = e.target.checked ? '' : 'none';
+    refreshScheduleDisplay();
+  };
+  document.getElementById('f_override').checked = hasOverride;
+  document.getElementById('schedStartWrap').style.display = hasOverride ? '' : 'none';
+  document.getElementById('schedEndWrap').style.display = hasOverride ? '' : 'none';
+  if(!hasOverride){
+    // prefill from roster on open
+    const sched = rosterSchedule(a.staff || document.getElementById('f_staff').value);
+    document.getElementById('f_schedStart').value = a.schedStart || sched.start;
+    document.getElementById('f_schedEnd').value = a.schedEnd || sched.end;
+  }
+
+  const NEEDS_TIME_FIELDS = ['On Time','Tardy ≤15 min','Tardy >15 min','Early Departure'];
+  const toggleTimeFields = ()=>{
+    const v = document.getElementById('f_violation').value;
+    document.getElementById('timeFieldsGroup').style.display = NEEDS_TIME_FIELDS.includes(v) ? 'contents' : 'none';
+  };
+  toggleTimeFields();
+  refreshScheduleDisplay();
 
   const updatePreview = ()=>{
     const draft = {
@@ -804,7 +863,7 @@ function openAttendanceModal(existing){
     };
     document.getElementById('f_pointsPreview').value = computeAttendancePoints(draft) + ' pt(s)';
   };
-  document.getElementById('f_violation').onchange = updatePreview;
+  document.getElementById('f_violation').onchange = ()=>{ toggleTimeFields(); updatePreview(); };
   document.getElementById('f_notified').onchange = updatePreview;
   document.getElementById('f_excused').onchange = (e)=>{
     document.getElementById('excuseReasonWrap').style.display = e.target.checked ? 'block' : 'none';
@@ -821,14 +880,16 @@ function openAttendanceModal(existing){
   updatePreview();
 
   document.getElementById('saveAttendanceBtn').onclick = async ()=>{
-    const staff = document.getElementById('f_staff').value.trim();
-    if(!staff){ toast('Enter a staff name'); return; }
+    const staff = document.getElementById('f_staff').value;
+    if(!staff){ toast('Choose a staff member'); return; }
+    const override = document.getElementById('f_override').checked;
     const rec = {
       id: a.id || uid(),
       date: document.getElementById('f_date').value || todayStr(),
       staff,
       schedStart: document.getElementById('f_schedStart').value,
       schedEnd: document.getElementById('f_schedEnd').value,
+      scheduleOverride: override,
       clockIn: document.getElementById('f_clockIn').value,
       clockOut: document.getElementById('f_clockOut').value,
       violationType: document.getElementById('f_violation').value,
@@ -852,6 +913,18 @@ window.deleteAttendance = deleteAttendance;
 document.getElementById('attendanceDateFilter').onchange = renderAttendance;
 document.getElementById('attendanceStaffFilter').onchange = renderAttendance;
 document.getElementById('addAttendanceBtn').onclick = ()=>openAttendanceModal(null);
+document.getElementById('logPtoBtn').onclick = ()=>openAttendanceModal(null, {
+  id:null, date:document.getElementById('attendanceDateFilter').value||todayStr(), staff:'',
+  schedStart:'', schedEnd:'', scheduleOverride:false, clockIn:'', clockOut:'',
+  violationType:'Absence', notifiedProperly:'N/A', excused:true, excuseReason:'PTO with prior approval',
+  notes:'', _title:'Log PTO'
+});
+document.getElementById('logCallOffBtn').onclick = ()=>openAttendanceModal(null, {
+  id:null, date:document.getElementById('attendanceDateFilter').value||todayStr(), staff:'',
+  schedStart:'', schedEnd:'', scheduleOverride:false, clockIn:'', clockOut:'',
+  violationType:'Absence', notifiedProperly:'Yes', excused:false, excuseReason:'',
+  notes:'', _title:'Log Call-Off (Notified in Advance)'
+});
 document.getElementById('exportAttendance').onclick = ()=>{
   const csv = toCSV(DB.attendance, [
     {label:'Date', get:r=>r.date},{label:'Staff', get:r=>r.staff},
@@ -1686,6 +1759,8 @@ function openNoteModal(existing){
       <div class="field"><label>Staff</label><input type="text" id="f_staff" value="${escAttr(n.staff)}" list="agentSuggestions"></div>
       <div class="field full"><label>Category</label><select id="f_category">
         <option ${n.category==='Performance'?'selected':''}>Performance</option>
+        <option ${n.category==='Missed Task'?'selected':''}>Missed Task</option>
+        <option ${n.category==='Workflow Error'?'selected':''}>Workflow Error</option>
         <option ${n.category==='Attendance'?'selected':''}>Attendance</option>
         <option ${n.category==='Behavior'?'selected':''}>Behavior</option>
         <option ${n.category==='Positive feedback'?'selected':''}>Positive feedback</option>
