@@ -134,6 +134,14 @@
   .score-card-actions{display:flex;gap:6px;margin-top:10px;}
   .score-card-actions button{flex:1;font-size:11px;padding:6px 4px;}
 
+  /* Job aid cards */
+  .jobaid-card{background:var(--white);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:8px;}
+  .jobaid-card .task-tag{align-self:flex-start;}
+  .jobaid-card .aid-title{font-weight:700;font-size:14px;color:var(--purple);}
+  .jobaid-card .aid-notes{font-size:12px;color:rgba(46,3,38,0.6);}
+  .jobaid-card .aid-actions{display:flex;gap:6px;margin-top:auto;}
+  .jobaid-card .aid-actions a, .jobaid-card .aid-actions button{flex:1;text-align:center;text-decoration:none;}
+
   /* Task efficiency matrix */
   .matrix-wrap{overflow-x:auto;background:var(--white);border-radius:14px;border:1px solid var(--line);}
   table.matrix-table{border-collapse:collapse;width:100%;min-width:640px;}
@@ -150,6 +158,15 @@
   .mode-pill:hover{background:rgba(255,255,255,0.2);}
 
   .identity-bar{display:flex;align-items:center;gap:8px;background:var(--white);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:14px;font-size:12.5px;}
+
+  /* Lunch clock */
+  .clock-card{background:linear-gradient(135deg,var(--purple) 0%, var(--purple-xd) 100%);border-radius:16px;padding:20px 22px;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap;}
+  .clock-face{font-family:"Funnel Display";font-size:38px;font-weight:800;letter-spacing:0.02em;line-height:1;}
+  .clock-date{font-size:12px;opacity:0.75;margin-top:2px;}
+  .lunch-status{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:16px;font-size:13px;display:flex;align-items:center;gap:10px;}
+  .lunch-status.on-lunch{background:#FFF7E6;border-color:#FFD9A0;}
+  .lunch-status.done{background:#DCF3E3;border-color:#9EDCB2;}
+  .lunch-status .big-emoji{font-size:22px;}
   .identity-bar b{color:var(--purple);}
   .identity-bar button{margin-left:auto;}
   .cell-btn.locked{cursor:not-allowed;}
@@ -220,6 +237,10 @@
     <button class="nav-btn" data-view="lunch">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
       Lunch
+    </button>
+    <button class="nav-btn" data-view="jobaids">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.07 0l1.93-1.93a5 5 0 0 0-7.07-7.07L10.5 5.43"/><path d="M14 11a5 5 0 0 0-7.07 0l-1.93 1.93a5 5 0 0 0 7.07 7.07L13.5 18.57"/></svg>
+      Job Aids
     </button>
     <button class="nav-btn manager-only" data-view="attendance">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M4 10h16"/><path d="M8 14h2M8 18h2M14 14h2M14 18h2"/></svg>
@@ -350,11 +371,21 @@
         <div class="panel-head">
           <h2>Lunch</h2>
           <div class="filters manager-only">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--purple);">
+              Standard lunch (min): <input type="number" id="maxLunchInput" min="5" max="120" style="width:60px;">
+            </label>
             <input type="date" id="lunchDateFilter">
             <button class="btn btn-ghost btn-sm" id="exportLunch">Export CSV</button>
           </div>
         </div>
-        <div class="card" style="margin-bottom:18px;">
+        <div class="clock-card">
+          <div>
+            <div class="clock-face" id="liveClockFace">--:--:--</div>
+            <div class="clock-date" id="liveClockDate">—</div>
+          </div>
+          <div style="font-size:34px;">🕐</div>
+        </div>
+        <div class="card" style="margin-bottom:14px;">
           <h3>Clock in / out</h3>
           <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
             <div class="field" style="min-width:180px;"><label>Staff</label><input type="text" id="lunchAgentInput" list="agentSuggestions" placeholder="Type a name"></div>
@@ -362,12 +393,25 @@
             <button class="btn btn-ghost btn-sm" id="lunchInBtn">Clock back in</button>
           </div>
         </div>
+        <div class="lunch-status" id="lunchStatusBox" style="display:none;"></div>
         <div class="table-wrap manager-only"><div class="table-scroll">
           <table>
             <thead><tr><th>Date</th><th>Staff</th><th>Clocked out</th><th>Clocked in</th><th>Duration</th><th></th></tr></thead>
             <tbody id="lunchBody"></tbody>
           </table>
         </div></div>
+      </div>
+
+      <!-- JOB AIDS -->
+      <div class="view" id="view-jobaids">
+        <div class="panel-head">
+          <h2>Job Aids</h2>
+          <div class="filters">
+            <select id="jobAidTaskFilter"><option value="">All tasks</option></select>
+            <button class="btn btn-primary btn-sm manager-only" id="addJobAidBtn">+ Add job aid</button>
+          </div>
+        </div>
+        <div class="score-grid" id="jobAidsGrid"></div>
       </div>
 
       <!-- ATTENDANCE -->
@@ -459,13 +503,14 @@
           <h2>Coaching Notes</h2>
           <div class="filters">
             <select id="notesStaffFilter"><option value="">All staff</option></select>
+            <select id="notesStatusFilter"><option value="">All statuses</option><option>Open</option><option>Resolved</option></select>
             <button class="btn btn-ghost btn-sm" id="exportNotes">Export CSV</button>
             <button class="btn btn-primary btn-sm" id="addNoteBtn">+ Add note</button>
           </div>
         </div>
         <div class="table-wrap"><div class="table-scroll">
           <table>
-            <thead><tr><th>Date</th><th>Staff</th><th>Category</th><th>Note</th><th>By</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Staff</th><th>Category</th><th>Note</th><th>Logged by</th><th>Status</th><th>Delivered</th><th></th></tr></thead>
             <tbody id="notesBody"></tbody>
           </table>
         </div></div>
@@ -481,8 +526,8 @@
 
 <script>
 /* ---------------- storage ---------------- */
-const KEYS = { taskTemplates:'task-templates-data', dailyTasks:'daily-tasks-data', lunchLog:'lunch-log-data', staff:'staff-roster-data', attendance:'attendance-data', coachingNotes:'coaching-notes-data' };
-let DB = { taskTemplates:[], dailyTasks:[], lunchLog:[], staff:[], attendance:[], coachingNotes:[] };
+const KEYS = { taskTemplates:'task-templates-data', dailyTasks:'daily-tasks-data', lunchLog:'lunch-log-data', staff:'staff-roster-data', attendance:'attendance-data', coachingNotes:'coaching-notes-data', settings:'app-settings-data', jobAids:'job-aids-data' };
+let DB = { taskTemplates:[], dailyTasks:[], lunchLog:[], staff:[], attendance:[], coachingNotes:[], settings:{}, jobAids:[] };
 
 const DEFAULT_TASK_TEMPLATES = [
   'Review/ Dump CMM Shipped','Review/ Dump Arizona Shipped','NDP Bot Failed','Troubleshoot Bots',
@@ -567,8 +612,12 @@ async function loadAll(){
   for(const k of Object.keys(KEYS)){
     try{
       const doc = await db.collection(FIRESTORE_COLLECTION).doc(KEYS[k]).get();
-      DB[k] = doc.exists && doc.data().items ? doc.data().items : [];
-    }catch(e){ console.error('load failed', k, e); DB[k] = []; }
+      DB[k] = doc.exists && doc.data().items ? doc.data().items : (k==='settings' ? {} : []);
+    }catch(e){ console.error('load failed', k, e); DB[k] = (k==='settings' ? {} : []); }
+  }
+  if(!DB.settings || typeof DB.settings!=='object' || Array.isArray(DB.settings) || !DB.settings.maxLunchMinutes){
+    DB.settings = { maxLunchMinutes: 30 };
+    await saveOne('settings');
   }
   if(!DB.taskTemplates || DB.taskTemplates.length===0){
     seedDemoData();
@@ -592,7 +641,7 @@ function attachLiveSync(){
       if(!doc.exists) return;
       DB[k] = doc.data().items || [];
       refreshAgentSuggestions();
-      renderWeekGrid(); renderDailyTasks(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderMetrics();
+      renderWeekGrid(); renderDailyTasks(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderMetrics(); renderJobAids();
     }, err=>console.error('sync error', k, err));
   });
 }
@@ -612,6 +661,7 @@ const titles = {
   dashboard:['Dashboard','Daily task completion and volume'],
   tasks:['Daily Tasks',"Recurring bot/queue tasks — start, complete, and log BestRx/Portal volume"],
   lunch:['Lunch','Clock out and back in, track lunch duration by staff'],
+  jobaids:['Job Aids','Reference links for each recurring task'],
   attendance:['Attendance','Log daily attendance and spot patterns'],
   team:['Team','Agent breakdown and personal performance view'],
   metrics:['Metrics','Spot performance drops and log coaching notes']
@@ -628,6 +678,7 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
     if(v==='dashboard') renderDashboard();
     if(v==='tasks'){ renderWeekGrid(); renderDailyTasks(); }
     if(v==='lunch') renderLunch();
+    if(v==='jobaids') renderJobAids();
     if(v==='attendance') renderAttendance();
     if(v==='team') renderTeam();
     if(v==='metrics') renderMetrics();
@@ -652,21 +703,89 @@ function refreshAgentSuggestions(){
 }
 
 /* ---------------- lunch log ---------------- */
+/* ---------------- live clock + lunch status ---------------- */
+function tickLiveClock(){
+  const face = document.getElementById('liveClockFace');
+  if(!face) return;
+  const now = new Date();
+  face.textContent = now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit'});
+  document.getElementById('liveClockDate').textContent = now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+  updateLunchStatus();
+}
+setInterval(tickLiveClock, 1000);
+tickLiveClock();
+
+function updateLunchStatus(){
+  const box = document.getElementById('lunchStatusBox');
+  if(!box) return;
+  const staff = document.getElementById('lunchAgentInput').value.trim();
+  if(!staff){ box.style.display='none'; return; }
+  const today = todayStr();
+  const open = DB.lunchLog.find(l=>l.staff===staff && l.date===today && !l.clockInAt);
+  if(open){
+    const elapsedMin = Math.floor((Date.now() - new Date(open.clockOutAt.length<=16?open.clockOutAt+':00':open.clockOutAt))/60000);
+    box.className = 'lunch-status on-lunch';
+    box.style.display = 'flex';
+    box.innerHTML = `<span class="big-emoji">🍽️</span> <div><b>${staff}</b> clocked out for lunch at <b>${fmtDT(open.clockOutAt)}</b> — ${elapsedMin} min ago and counting.</div>`;
+    return;
+  }
+  const last = DB.lunchLog.filter(l=>l.staff===staff && l.date===today && l.clockInAt).sort((a,b)=>b.clockInAt.localeCompare(a.clockInAt))[0];
+  if(last){
+    box.className = 'lunch-status done';
+    box.style.display = 'flex';
+    box.innerHTML = `<span class="big-emoji">✅</span> <div><b>${staff}</b> clocked back in at <b>${fmtDT(last.clockInAt)}</b> — lunch was ${last.durationMin} min (out at ${fmtDT(last.clockOutAt)}).</div>`;
+    return;
+  }
+  box.className = 'lunch-status';
+  box.style.display = 'flex';
+  box.innerHTML = `<span class="big-emoji">👋</span> <div><b>${staff}</b> hasn't clocked out for lunch yet today.</div>`;
+}
+document.getElementById('lunchAgentInput').addEventListener('input', updateLunchStatus);
+
 function renderLunch(){
+  updateLunchStatus();
+  const maxLunchInput = document.getElementById('maxLunchInput');
+  maxLunchInput.value = DB.settings.maxLunchMinutes || 30;
   const dateF = document.getElementById('lunchDateFilter').value;
   const rows = DB.lunchLog.filter(l=>!dateF || l.date===dateF).sort((a,b)=>b.date.localeCompare(a.date));
   const body = document.getElementById('lunchBody');
   if(rows.length===0){ body.innerHTML = `<tr><td colspan="6"><div class="empty">No lunch entries for this filter.</div></td></tr>`; return; }
-  body.innerHTML = rows.map(l=>`
-    <tr>
+  const maxMin = DB.settings.maxLunchMinutes || 30;
+  body.innerHTML = rows.map(l=>{
+    const over = l.durationMin!=null && l.durationMin!=='' && l.durationMin>maxMin;
+    const overBy = over ? l.durationMin-maxMin : 0;
+    return `
+    <tr${over?' style="background:rgba(179,32,77,0.05);"':''}>
       <td>${fmtDate(l.date)}</td>
       <td>${l.staff}</td>
       <td>${fmtDT(l.clockOutAt)}</td>
       <td>${l.clockInAt ? fmtDT(l.clockInAt) : '<em>Still out</em>'}</td>
-      <td>${l.durationMin!=null && l.durationMin!=='' ? l.durationMin+' min' : '—'}</td>
-      <td><button class="icon-btn" title="Delete" onclick="deleteLunch('${l.id}')">✕</button></td>
-    </tr>`).join('');
+      <td>${l.durationMin!=null && l.durationMin!=='' ? l.durationMin+' min' : '—'}${over?` <span class="badge b-spike">Over by ${overBy}m</span>`:''}</td>
+      <td style="white-space:nowrap;">
+        ${over ? `<button class="icon-btn" title="Log coaching note" onclick="noteFromLunch('${l.id}')">📝</button>` : ''}
+        <button class="icon-btn" title="Delete" onclick="deleteLunch('${l.id}')">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
 }
+function noteFromLunch(id){
+  const l = DB.lunchLog.find(x=>x.id===id); if(!l) return;
+  const maxMin = DB.settings.maxLunchMinutes || 30;
+  const overBy = l.durationMin - maxMin;
+  openNoteModal(null, {
+    id:null, date:l.date, staff:l.staff, category:'Behavior',
+    note:`Lunch on ${fmtDate(l.date)} ran ${l.durationMin} min — ${overBy} min over the standard ${maxMin} min lunch.`,
+    createdBy: currentStaffName||''
+  });
+}
+window.noteFromLunch = noteFromLunch;
+document.getElementById('maxLunchInput').onchange = async ()=>{
+  const val = parseInt(document.getElementById('maxLunchInput').value) || 30;
+  DB.settings.maxLunchMinutes = val;
+  await saveOne('settings');
+  renderLunch();
+  toast(`Standard lunch set to ${val} minutes`);
+};
 async function deleteLunch(id){
   if(!confirm('Delete this lunch entry?')) return;
   DB.lunchLog = DB.lunchLog.filter(l=>l.id!==id);
@@ -681,7 +800,7 @@ document.getElementById('lunchOutBtn').onclick = async ()=>{
   const openEntry = DB.lunchLog.find(l=>l.staff===staff && l.date===today && !l.clockInAt);
   if(openEntry){ toast(`${staff} is already clocked out for lunch`); return; }
   DB.lunchLog.push({id:uid(), date:today, staff, clockOutAt:nowLocalInput(), clockInAt:'', durationMin:''});
-  await saveOne('lunchLog'); renderLunch(); refreshAgentSuggestions(); toast(`${staff} clocked out for lunch`);
+  await saveOne('lunchLog'); renderLunch(); refreshAgentSuggestions(); updateLunchStatus(); toast(`${staff} clocked out for lunch`);
 };
 document.getElementById('lunchInBtn').onclick = async ()=>{
   const staff = document.getElementById('lunchAgentInput').value.trim();
@@ -691,7 +810,7 @@ document.getElementById('lunchInBtn').onclick = async ()=>{
   if(!openEntry){ toast(`${staff} isn't clocked out for lunch`); return; }
   openEntry.clockInAt = nowLocalInput();
   openEntry.durationMin = Math.round((new Date(openEntry.clockInAt) - new Date(openEntry.clockOutAt))/60000);
-  await saveOne('lunchLog'); renderLunch(); toast(`${staff} clocked back in`);
+  await saveOne('lunchLog'); renderLunch(); updateLunchStatus(); toast(`${staff} clocked back in`);
 };
 document.getElementById('lunchDateFilter').onchange = renderLunch;
 document.getElementById('exportLunch').onclick = ()=>{
@@ -1378,6 +1497,73 @@ async function removeTemplate(id){
 }
 window.removeTemplate = removeTemplate;
 
+/* ---------------- job aids ---------------- */
+function renderJobAids(){
+  const sel = document.getElementById('jobAidTaskFilter');
+  const prevVal = sel.value;
+  const taskNames = DB.taskTemplates.map(t=>t.name).sort();
+  sel.innerHTML = `<option value="">All tasks</option>` + taskNames.map(t=>`<option value="${escAttr(t)}" ${t===prevVal?'selected':''}>${t}</option>`).join('');
+
+  const filterVal = sel.value;
+  const rows = DB.jobAids.filter(j=>!filterVal || j.task===filterVal).sort((a,b)=>a.task.localeCompare(b.task)||a.title.localeCompare(b.title));
+  const grid = document.getElementById('jobAidsGrid');
+  if(rows.length===0){
+    grid.innerHTML = `<div class="empty">No job aids added yet.${appMode==='manager' ? ' Click "+ Add job aid" to add your first reference link.' : ''}</div>`;
+    return;
+  }
+  grid.innerHTML = rows.map(j=>`
+    <div class="jobaid-card">
+      <span class="badge b-na task-tag">${j.task||'General'}</span>
+      <div class="aid-title">${j.title}</div>
+      ${j.notes ? `<div class="aid-notes">${j.notes}</div>` : ''}
+      <div class="aid-actions">
+        <a href="${escAttr(j.url)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Open ↗</a>
+        <button class="btn btn-ghost btn-sm manager-only" onclick="openJobAidModal(DB.jobAids.find(x=>x.id==='${j.id}'))">Edit</button>
+        <button class="btn btn-ghost btn-sm manager-only" onclick="deleteJobAid('${j.id}')" style="color:#B3204D;">Delete</button>
+      </div>
+    </div>`).join('');
+}
+function openJobAidModal(existing){
+  const j = existing || {id:null, task:DB.taskTemplates[0]?.name||'', title:'', url:'', notes:''};
+  const taskOpts = DB.taskTemplates.map(t=>`<option value="${escAttr(t.name)}" ${t.name===j.task?'selected':''}>${t.name}</option>`).join('');
+  modalBody.innerHTML = `
+    <h3>${existing?'Edit job aid':'Add job aid'}</h3>
+    <div class="form-grid">
+      <div class="field full"><label>Task</label><select id="f_jaTask">${taskOpts || '<option value="">General</option>'}</select></div>
+      <div class="field full"><label>Title</label><input type="text" id="f_jaTitle" value="${escAttr(j.title)}" placeholder="e.g. BestRx queue walkthrough"></div>
+      <div class="field full"><label>Link (URL)</label><input type="text" id="f_jaUrl" value="${escAttr(j.url)}" placeholder="https://..."></div>
+      <div class="field full"><label>Notes (optional)</label><textarea id="f_jaNotes" rows="2">${j.notes||''}</textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="saveJobAidBtn">Save</button>
+    </div>`;
+  overlay.classList.add('active');
+  document.getElementById('saveJobAidBtn').onclick = async ()=>{
+    const title = document.getElementById('f_jaTitle').value.trim();
+    let url = document.getElementById('f_jaUrl').value.trim();
+    if(!title || !url){ toast('Title and link are required'); return; }
+    if(!/^https?:\/\//i.test(url)) url = 'https://'+url;
+    const rec = {
+      id: j.id || uid(),
+      task: document.getElementById('f_jaTask').value,
+      title, url,
+      notes: document.getElementById('f_jaNotes').value
+    };
+    if(existing){ DB.jobAids = DB.jobAids.map(x=>x.id===rec.id?rec:x); } else { DB.jobAids.push(rec); }
+    await saveOne('jobAids'); closeModal(); renderJobAids(); toast('Job aid saved');
+  };
+}
+window.openJobAidModal = openJobAidModal;
+async function deleteJobAid(id){
+  if(!confirm('Delete this job aid?')) return;
+  DB.jobAids = DB.jobAids.filter(j=>j.id!==id);
+  await saveOne('jobAids'); renderJobAids(); toast('Deleted');
+}
+window.deleteJobAid = deleteJobAid;
+document.getElementById('jobAidTaskFilter').onchange = renderJobAids;
+document.getElementById('addJobAidBtn').onclick = ()=>openJobAidModal(null);
+
 /* ---------------- staff roster ---------------- */
 function openManageStaffModal(){
   modalBody.innerHTML = `
@@ -1734,24 +1920,39 @@ function renderMetrics(){
 
 function renderCoachingNotes(){
   const staffF = document.getElementById('notesStaffFilter').value;
-  const rows = DB.coachingNotes.filter(n=>!staffF || n.staff===staffF).sort((a,b)=>b.date.localeCompare(a.date));
+  const statusF = document.getElementById('notesStatusFilter').value;
+  const rows = DB.coachingNotes.filter(n=>(!staffF || n.staff===staffF) && (!statusF || (n.status||'Open')===statusF)).sort((a,b)=>b.date.localeCompare(a.date));
   const body = document.getElementById('notesBody');
-  if(rows.length===0){ body.innerHTML = `<tr><td colspan="6"><div class="empty">No coaching notes logged yet.</div></td></tr>`; return; }
-  body.innerHTML = rows.map(n=>`
+  if(rows.length===0){ body.innerHTML = `<tr><td colspan="8"><div class="empty">No coaching notes logged yet.</div></td></tr>`; return; }
+  body.innerHTML = rows.map(n=>{
+    const status = n.status || 'Open';
+    const delivered = status==='Resolved' ? `${n.deliveryMethod||'—'}${n.deliveredBy?' · '+n.deliveredBy:''}` : '—';
+    return `
     <tr>
       <td>${fmtDate(n.date)}</td>
       <td>${n.staff}</td>
       <td><span class="badge b-na">${n.category}</span></td>
-      <td style="max-width:280px;white-space:normal;">${n.note}</td>
+      <td style="max-width:260px;white-space:normal;">${n.note}</td>
       <td>${n.createdBy||'—'}</td>
-      <td>
+      <td><span class="badge ${status==='Resolved'?'b-ok':'b-open'}">${status}</span></td>
+      <td style="font-size:11.5px;">${delivered}</td>
+      <td style="white-space:nowrap;">
+        ${status==='Open' ? `<button class="icon-btn" title="Mark resolved" onclick="quickResolveNote('${n.id}')">✓</button>` : ''}
         <button class="icon-btn" title="Edit" onclick="openNoteModal(DB.coachingNotes.find(x=>x.id==='${n.id}'))">✎</button>
         <button class="icon-btn" title="Delete" onclick="deleteNote('${n.id}')">✕</button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
-function openNoteModal(existing){
-  const n = existing || {id:null, date:todayStr(), staff:'', category:'Performance', note:'', createdBy:currentStaffName||''};
+function quickResolveNote(id){
+  const n = DB.coachingNotes.find(x=>x.id===id); if(!n) return;
+  openNoteModal(n, null, true);
+}
+window.quickResolveNote = quickResolveNote;
+
+function openNoteModal(existing, prefill, focusResolve){
+  const n = existing || prefill || {id:null, date:todayStr(), staff:'', category:'Performance', note:'', createdBy:currentStaffName||'', status:'Open', deliveryMethod:'', deliveredBy:'', deliveredDate:''};
+  const DELIVERY_METHODS = ['In Person','Slack','Email','Phone Call','Video Call','Other'];
   modalBody.innerHTML = `
     <h3>${existing?'Edit coaching note':'Add coaching note'}</h3>
     <div class="form-grid">
@@ -1768,24 +1969,42 @@ function openNoteModal(existing){
       </select></div>
       <div class="field full"><label>Note</label><textarea id="f_note" rows="4">${n.note||''}</textarea></div>
       <div class="field full"><label>Logged by</label><input type="text" id="f_by" value="${escAttr(n.createdBy||'')}"></div>
+      <div class="field full" style="display:flex;align-items:center;gap:8px;margin-top:2px;border-top:1px dashed var(--line);padding-top:12px;">
+        <input type="checkbox" id="f_resolved" ${(n.status||'Open')==='Resolved'?'checked':''} style="width:auto;">
+        <label style="margin:0;font-weight:700;">Coaching has been given / feedback delivered</label>
+      </div>
+      <div class="field full" id="deliveryWrap" style="display:${(n.status||'Open')==='Resolved'?'grid':'none'};grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="field"><label>Delivered via</label><select id="f_deliveryMethod">${DELIVERY_METHODS.map(m=>`<option ${n.deliveryMethod===m?'selected':''}>${m}</option>`).join('')}</select></div>
+        <div class="field"><label>Delivered by</label><input type="text" id="f_deliveredBy" value="${escAttr(n.deliveredBy || currentStaffName || '')}"></div>
+        <div class="field full"><label>Date delivered</label><input type="date" id="f_deliveredDate" value="${n.deliveredDate || todayStr()}"></div>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" id="saveNoteBtn">Save</button>
     </div>`;
   overlay.classList.add('active');
+  document.getElementById('f_resolved').onchange = (e)=>{
+    document.getElementById('deliveryWrap').style.display = e.target.checked ? 'grid' : 'none';
+  };
+  if(focusResolve) document.getElementById('f_resolved').focus();
   document.getElementById('saveNoteBtn').onclick = async ()=>{
     const staff = document.getElementById('f_staff').value.trim();
     const note = document.getElementById('f_note').value.trim();
     if(!staff || !note){ toast('Staff and note are required'); return; }
+    const resolved = document.getElementById('f_resolved').checked;
     const rec = {
       id: n.id || uid(),
       date: document.getElementById('f_date').value || todayStr(),
       staff, category: document.getElementById('f_category').value,
-      note, createdBy: document.getElementById('f_by').value
+      note, createdBy: document.getElementById('f_by').value,
+      status: resolved ? 'Resolved' : 'Open',
+      deliveryMethod: resolved ? document.getElementById('f_deliveryMethod').value : '',
+      deliveredBy: resolved ? document.getElementById('f_deliveredBy').value : '',
+      deliveredDate: resolved ? document.getElementById('f_deliveredDate').value : ''
     };
     if(existing){ DB.coachingNotes = DB.coachingNotes.map(x=>x.id===rec.id?rec:x); } else { DB.coachingNotes.push(rec); }
-    await saveOne('coachingNotes'); closeModal(); renderCoachingNotes(); toast('Note saved');
+    await saveOne('coachingNotes'); closeModal(); renderCoachingNotes(); toast(resolved ? 'Marked resolved' : 'Note saved');
   };
 }
 window.openNoteModal = openNoteModal;
@@ -1797,11 +2016,13 @@ async function deleteNote(id){
 window.deleteNote = deleteNote;
 document.getElementById('metricsShowAllToggle').onchange = renderMetrics;
 document.getElementById('notesStaffFilter').onchange = renderCoachingNotes;
+document.getElementById('notesStatusFilter').onchange = renderCoachingNotes;
 document.getElementById('addNoteBtn').onclick = ()=>openNoteModal(null);
 document.getElementById('exportNotes').onclick = ()=>{
   const csv = toCSV(DB.coachingNotes, [
     {label:'Date', get:r=>r.date},{label:'Staff', get:r=>r.staff},{label:'Category', get:r=>r.category},
-    {label:'Note', get:r=>r.note},{label:'Logged by', get:r=>r.createdBy}
+    {label:'Note', get:r=>r.note},{label:'Logged by', get:r=>r.createdBy},{label:'Status', get:r=>r.status||'Open'},
+    {label:'Delivered Via', get:r=>r.deliveryMethod},{label:'Delivered By', get:r=>r.deliveredBy},{label:'Date Delivered', get:r=>r.deliveredDate}
   ]);
   downloadCSV(csv, 'gifthealth_coaching_notes.csv'); toast('CSV downloaded');
 };
@@ -1993,7 +2214,7 @@ document.getElementById('resetBtn').onclick = async ()=>{
   DB.attendance = [];
   DB.coachingNotes = [];
   await saveAll();
-  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderMetrics(); refreshAgentSuggestions();
+  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderMetrics(); renderJobAids(); refreshAgentSuggestions();
   toast('Test data cleared');
 };
 
@@ -2019,6 +2240,7 @@ document.getElementById('resetBtn').onclick = async ()=>{
     renderAttendance();
     renderTeam();
     renderMetrics();
+    renderJobAids();
   }catch(e){
     console.error(e);
     document.getElementById('content').innerHTML = '<div class="empty">Could not load data. Please refresh.</div>';
