@@ -1064,11 +1064,12 @@ document.getElementById('logCallOffBtn').onclick = ()=>openAttendanceModal(null,
   notes:'', _title:'Log Call-Off (Notified in Advance)'
 });
 
-/* ---------------- batch attendance entry ---------------- */
-const BATCH_OPTIONS = ['— None —','On Time','Tardy ≤15 min','Tardy >15 min','Early Departure','Absence','No-Call/No-Show','PTO (excused)','Call-Off (notified)'];
+/* ---------------- batch attendance entry (one employee, one week, clock in/out per day) ---------------- */
 let batchWeekStart = getMonday(todayStr());
 function batchWeekDates(){ return [0,1,2,3,4,5,6].map(i=>addDays(batchWeekStart,i)); }
 const BATCH_DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const BATCH_VIOLATIONS = ['— Skip —','On Time','Tardy ≤15 min','Tardy >15 min','Early Departure','Absence','No-Call/No-Show'];
+const EXCUSE_OPTIONS_BATCH = ['PTO with prior approval','Approved protected leave (FMLA/ADA/sick)',"Workers' compensation leave",'Jury duty','Bereavement leave','Other legally protected absence','Manager discretion'];
 
 function openBatchAttendanceModal(){
   if(DB.staff.length===0){
@@ -1076,77 +1077,116 @@ function openBatchAttendanceModal(){
     overlay.classList.add('active');
     return;
   }
+  const staffOpts = DB.staff.map(s=>s.name).sort().map(n=>`<option value="${escAttr(n)}">${n}</option>`).join('');
   modalBody.innerHTML = `
     <h3>Batch add attendance</h3>
-    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-6px 0 12px;">Pick a violation for each day that had one — leave the rest as "— None —" and they'll be skipped. Existing entries for a day are left untouched.</p>
+    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-6px 0 12px;">One employee, one week. Fill in clock in/out for any day that had an issue — leave a day as "— Skip —" to ignore it.</p>
+    <div class="form-grid" style="margin-bottom:10px;">
+      <div class="field full"><label>Staff</label><select id="batchStaffSelect">${staffOpts}</select></div>
+    </div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
       <button class="btn btn-ghost btn-sm" id="batchPrevWeek">‹</button>
       <span id="batchWeekLabel" style="font-weight:700;font-size:12.5px;color:var(--purple);"></span>
       <button class="btn btn-ghost btn-sm" id="batchNextWeek">›</button>
       <button class="btn btn-ghost btn-sm" id="batchThisWeek" style="margin-left:6px;">This week</button>
     </div>
-    <div class="matrix-wrap" style="max-height:360px;"><table class="matrix-table" id="batchTable"></table></div>
+    <div id="batchDaysWrap" style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" id="saveBatchBtn">Save all entries</button>
     </div>`;
   overlay.classList.add('active');
-  renderBatchTable();
-  document.getElementById('batchPrevWeek').onclick = ()=>{ batchWeekStart = addDays(batchWeekStart,-7); renderBatchTable(); };
-  document.getElementById('batchNextWeek').onclick = ()=>{ batchWeekStart = addDays(batchWeekStart,7); renderBatchTable(); };
-  document.getElementById('batchThisWeek').onclick = ()=>{ batchWeekStart = getMonday(todayStr()); renderBatchTable(); };
+  renderBatchDays();
+  document.getElementById('batchStaffSelect').onchange = renderBatchDays;
+  document.getElementById('batchPrevWeek').onclick = ()=>{ batchWeekStart = addDays(batchWeekStart,-7); renderBatchDays(); };
+  document.getElementById('batchNextWeek').onclick = ()=>{ batchWeekStart = addDays(batchWeekStart,7); renderBatchDays(); };
+  document.getElementById('batchThisWeek').onclick = ()=>{ batchWeekStart = getMonday(todayStr()); renderBatchDays(); };
   document.getElementById('saveBatchBtn').onclick = saveBatchAttendance;
 }
 window.openBatchAttendanceModal = openBatchAttendanceModal;
 
-function renderBatchTable(){
+function renderBatchDays(){
   const dates = batchWeekDates();
   const fmt = d=>{ const dt=new Date(d+'T00:00:00'); return (dt.getMonth()+1)+'/'+dt.getDate(); };
   document.getElementById('batchWeekLabel').textContent = `Week of ${fmt(dates[0])} – ${fmt(dates[6])}`;
-  let thead = '<tr><th class="task-col">Staff</th>' + dates.map((d,i)=>`<th>${BATCH_DAY_NAMES[i]}<br>${fmt(d)}</th>`).join('') + '</tr>';
-  let rows = DB.staff.map(s=>{
-    let row = `<tr><td class="task-col"><b>${s.name}</b></td>`;
-    dates.forEach(d=>{
-      const existing = DB.attendance.find(a=>a.staff===s.name && a.date===d);
-      const cellId = `batchcell_${s.id}_${d}`;
-      if(existing){
-        row += `<td style="font-size:10px;color:rgba(46,3,38,0.45);">Already logged<br>(${existing.violationType})</td>`;
-      } else {
-        row += `<td><select id="${cellId}" data-staff="${escAttr(s.name)}" data-date="${d}" style="font-size:11px;width:100%;">${BATCH_OPTIONS.map(o=>`<option>${o}</option>`).join('')}</select></td>`;
-      }
-    });
-    row += '</tr>';
-    return row;
+  const staffName = document.getElementById('batchStaffSelect').value;
+  const roster = DB.staff.find(s=>s.name===staffName);
+  const schedStart = roster?.schedStart||'', schedEnd = roster?.schedEnd||'';
+
+  const wrap = document.getElementById('batchDaysWrap');
+  wrap.innerHTML = dates.map((d,i)=>{
+    const existing = DB.attendance.find(a=>a.staff===staffName && a.date===d);
+    if(existing){
+      return `<div class="card" style="padding:10px 14px;background:var(--beige);">
+        <b>${BATCH_DAY_NAMES[i]} ${fmt(d)}</b> — already logged (${existing.violationType}${existing.excused?', excused':''}). Edit it from the log table if it needs changes.
+      </div>`;
+    }
+    return `<div class="card" style="padding:12px 14px;" data-day-row data-date="${d}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <b style="font-size:13px;">${BATCH_DAY_NAMES[i]} ${fmt(d)}</b>
+        <span style="font-size:11px;color:rgba(46,3,38,0.5);">Scheduled: ${schedStart?fmt12h(schedStart):'—'}${schedEnd?' – '+fmt12h(schedEnd):''}</span>
+      </div>
+      <div class="form-grid">
+        <div class="field"><label>Clock in</label><input type="time" class="batch-clockin" data-date="${d}"></div>
+        <div class="field"><label>Clock out</label><input type="time" class="batch-clockout" data-date="${d}"></div>
+        <div class="field full"><label>Violation</label><select class="batch-violation" data-date="${d}">${BATCH_VIOLATIONS.map(v=>`<option>${v}</option>`).join('')}</select></div>
+        <div class="field full" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" class="batch-excused" data-date="${d}" style="width:auto;">
+          <label style="margin:0;font-size:12px;">Excuse this day</label>
+        </div>
+        <div class="field full batch-excuse-reason-wrap" data-date="${d}" style="display:none;">
+          <select class="batch-excuse-reason" data-date="${d}">${EXCUSE_OPTIONS_BATCH.map(o=>`<option>${o}</option>`).join('')}</select>
+        </div>
+      </div>
+    </div>`;
   }).join('');
-  document.getElementById('batchTable').innerHTML = thead + rows;
+
+  // wire per-day interactivity
+  dates.forEach(d=>{
+    const clockIn = wrap.querySelector(`.batch-clockin[data-date="${d}"]`);
+    const violation = wrap.querySelector(`.batch-violation[data-date="${d}"]`);
+    const excused = wrap.querySelector(`.batch-excused[data-date="${d}"]`);
+    const reasonWrap = wrap.querySelector(`.batch-excuse-reason-wrap[data-date="${d}"]`);
+    if(!clockIn) return; // row already logged, skipped
+    clockIn.oninput = ()=>{
+      if(clockIn.value && schedStart && violation.value==='— Skip —'){
+        violation.value = suggestViolation(schedStart, clockIn.value);
+      }
+    };
+    excused.onchange = ()=>{ reasonWrap.style.display = excused.checked ? '' : 'none'; };
+  });
 }
 
 async function saveBatchAttendance(){
-  const selects = document.querySelectorAll('#batchTable select');
+  const staffName = document.getElementById('batchStaffSelect').value;
+  const roster = DB.staff.find(s=>s.name===staffName);
+  const rows = document.querySelectorAll('#batchDaysWrap [data-day-row]');
   let added = 0;
-  selects.forEach(sel=>{
-    const val = sel.value;
-    if(val==='— None —') return;
-    const staffName = sel.dataset.staff;
-    const date = sel.dataset.date;
-    const roster = DB.staff.find(s=>s.name===staffName);
-    let rec = {
+  rows.forEach(row=>{
+    const date = row.dataset.date;
+    const clockIn = row.querySelector('.batch-clockin').value;
+    const clockOut = row.querySelector('.batch-clockout').value;
+    const violation = row.querySelector('.batch-violation').value;
+    const excused = row.querySelector('.batch-excused').checked;
+    const excuseReason = row.querySelector('.batch-excuse-reason').value;
+    if(violation==='— Skip —' && !excused && !clockIn && !clockOut) return; // truly nothing entered
+
+    const rec = {
       id: uid(), date, staff: staffName,
       schedStart: roster?.schedStart||'', schedEnd: roster?.schedEnd||'', scheduleOverride:false,
-      clockIn:'', clockOut:'', notifiedProperly:'N/A', excused:false, excuseReason:'', notes:''
+      clockIn, clockOut,
+      violationType: violation==='— Skip —' ? (excused ? 'Absence' : 'On Time') : violation,
+      notifiedProperly:'N/A', excused, excuseReason: excused ? excuseReason : '', notes:''
     };
-    if(val==='PTO (excused)'){ rec.violationType='Absence'; rec.excused=true; rec.excuseReason='PTO with prior approval'; }
-    else if(val==='Call-Off (notified)'){ rec.violationType='Absence'; rec.notifiedProperly='Yes'; }
-    else { rec.violationType = val; }
     rec.points = computeAttendancePoints(rec);
     DB.attendance.push(rec);
     added++;
   });
-  if(added===0){ toast('Nothing selected — pick a violation for at least one day'); return; }
+  if(added===0){ toast('Nothing entered — fill in at least one day'); return; }
   await saveOne('attendance');
   closeModal();
   renderAttendance(); renderTeam(); renderMetrics(); refreshAgentSuggestions();
-  toast(`Added ${added} attendance entr${added===1?'y':'ies'}`);
+  toast(`Added ${added} attendance entr${added===1?'y':'ies'} for ${staffName}`);
 }
 
 document.getElementById('exportAttendance').onclick = ()=>{
