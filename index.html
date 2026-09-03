@@ -223,6 +223,9 @@
 </head>
 <body class="mode-staff">
 
+<div id="connectionBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:200;background:#B3204D;color:#fff;padding:10px 16px;text-align:center;font-size:13px;font-weight:600;">
+  ⚠ Couldn't connect to the server — showing nothing rather than risk overwriting your data. Your data is safe in the cloud; check your internet connection and reload this page.
+</div>
 <div class="app">
   <div class="sidebar">
     <div class="brand"><div class="eyebrow">Gifthealth</div><div class="name">Daily Task Tracker</div></div>
@@ -609,21 +612,43 @@ const db = firebase.firestore();
 let suppressSnapshotRerender = false;
 
 async function loadAll(){
+  let hadError = false;
+  const existedBefore = {};
   for(const k of Object.keys(KEYS)){
     try{
       const doc = await db.collection(FIRESTORE_COLLECTION).doc(KEYS[k]).get();
-      DB[k] = doc.exists && doc.data().items ? doc.data().items : (k==='settings' ? {} : []);
-    }catch(e){ console.error('load failed', k, e); DB[k] = (k==='settings' ? {} : []); }
+      existedBefore[k] = doc.exists;
+      DB[k] = doc.exists && doc.data().items!==undefined ? doc.data().items : (k==='settings' ? {} : []);
+    }catch(e){
+      console.error('load failed', k, e);
+      hadError = true;
+      DB[k] = (k==='settings' ? {} : []); // local placeholder only — never treated as ground truth below
+    }
   }
+
+  if(hadError){
+    // Connection/permission problem, not confirmed empty data. Never seed or save here —
+    // doing so would overwrite real Firestore data with blanks. Just show a banner and stop.
+    showConnectionBanner();
+    attachLiveSync();
+    return;
+  }
+
   if(!DB.settings || typeof DB.settings!=='object' || Array.isArray(DB.settings) || !DB.settings.maxLunchMinutes){
     DB.settings = { maxLunchMinutes: 30 };
     await saveOne('settings');
   }
-  if(!DB.taskTemplates || DB.taskTemplates.length===0){
-    seedDemoData();
-    await saveAll();
+  // Only seed the default task list if that specific document genuinely doesn't exist yet
+  // (a real first-time setup) — never as a side effect of a failed read elsewhere.
+  if(!existedBefore.taskTemplates && (!DB.taskTemplates || DB.taskTemplates.length===0)){
+    DB.taskTemplates = DEFAULT_TASK_TEMPLATES.map(name=>({id:uid(), name}));
+    await saveOne('taskTemplates');
   }
   attachLiveSync();
+}
+function showConnectionBanner(){
+  const el = document.getElementById('connectionBanner');
+  if(el) el.style.display = 'flex';
 }
 async function saveAll(){ for(const k of Object.keys(KEYS)){ await saveOne(k); } }
 async function saveOne(k){
@@ -640,20 +665,12 @@ function attachLiveSync(){
       if(suppressSnapshotRerender) return; // ignore the echo of our own write
       if(!doc.exists) return;
       DB[k] = doc.data().items || [];
+      const banner = document.getElementById('connectionBanner');
+      if(banner) banner.style.display = 'none';
       refreshAgentSuggestions();
       renderWeekGrid(); renderDailyTasks(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderMetrics(); renderJobAids();
     }, err=>console.error('sync error', k, err));
   });
-}
-
-function seedDemoData(){
-  // Only seeds the real, reusable task list — no fake staff, tasks, lunch, or attendance data.
-  DB.taskTemplates = DEFAULT_TASK_TEMPLATES.map(name=>({id:uid(), name}));
-  DB.dailyTasks = [];
-  DB.staff = [];
-  DB.lunchLog = [];
-  DB.attendance = [];
-  DB.coachingNotes = [];
 }
 
 /* ---------------- nav ---------------- */
