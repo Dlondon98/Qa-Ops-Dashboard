@@ -1073,11 +1073,20 @@ function openAttendanceModal(existing, prefill){
       </div>
       <div class="field full"><label>Notes</label><textarea id="f_notes" rows="2" placeholder="Documentation or context">${a.notes||''}</textarea></div>
     </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" id="saveAttendanceBtn">Save</button>
+    <div class="modal-actions" style="justify-content:${existing?'space-between':'flex-end'};">
+      ${existing ? `<button class="btn btn-ghost" id="deleteAttendanceInModalBtn" style="color:#B3204D;border-color:rgba(179,32,77,0.25);">Delete entry</button>` : ''}
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" id="saveAttendanceBtn">Save</button>
+      </div>
     </div>`;
   overlay.classList.add('active');
+  if(existing){
+    document.getElementById('deleteAttendanceInModalBtn').onclick = async ()=>{
+      closeModal();
+      await deleteAttendance(existing.id);
+    };
+  }
 
   const rosterSchedule = (name)=>{ const s = DB.staff.find(x=>x.name===name); return s ? {start:s.schedStart||'', end:s.schedEnd||''} : {start:'',end:''}; };
 
