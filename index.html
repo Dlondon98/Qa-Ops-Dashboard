@@ -155,6 +155,20 @@
   .matrix-legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11px;color:rgba(46,3,38,0.6);margin:10px 2px 0;}
   .matrix-legend .lg-item{display:flex;align-items:center;gap:5px;}
   .matrix-legend .lg-dot{width:10px;height:10px;border-radius:3px;display:inline-block;}
+
+  /* Attendance calendar */
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+  .cal-dow{text-align:center;font-size:11px;font-weight:700;color:rgba(46,3,38,0.5);text-transform:uppercase;padding-bottom:4px;}
+  .cal-day{background:var(--white);border:1px solid var(--line);border-radius:10px;min-height:74px;padding:6px;cursor:pointer;display:flex;flex-direction:column;gap:3px;transition:box-shadow .1s;}
+  .cal-day:hover{box-shadow:0 2px 8px rgba(46,3,38,0.12);}
+  .cal-day.empty{background:transparent;border:none;cursor:default;}
+  .cal-day.today{border-color:var(--purple);border-width:2px;}
+  .cal-day .cal-daynum{font-size:11px;font-weight:700;color:rgba(46,3,38,0.55);}
+  .cal-day .cal-tag{font-size:9.5px;font-weight:700;padding:2px 5px;border-radius:5px;line-height:1.3;}
+  .cal-day.cd-ontime{background:#D4F3DC;}
+  .cal-day.cd-minor{background:#FFF0AD;}
+  .cal-day.cd-major{background:#FFD9D9;}
+  .cal-day.cd-excused{background:#EAFDFF;}
   .mode-pill:hover{background:rgba(255,255,255,0.2);}
 
   .identity-bar{display:flex;align-items:center;gap:8px;background:var(--white);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:14px;font-size:12.5px;}
@@ -430,21 +444,52 @@
         <div class="panel-head">
           <h2>Attendance Log</h2>
           <div class="filters">
-            <input type="date" id="attendanceDateFilter">
-            <select id="attendanceStaffFilter"><option value="">All staff</option></select>
-            <button class="btn btn-ghost btn-sm" id="exportAttendance">Export CSV</button>
+            <div class="view-toggle">
+              <button id="attViewListBtn" class="active">List</button>
+              <button id="attViewCalBtn">Calendar</button>
+            </div>
             <button class="btn btn-ghost btn-sm" id="logPtoBtn">+ Log PTO</button>
             <button class="btn btn-ghost btn-sm" id="logCallOffBtn">+ Log Call-Off</button>
             <button class="btn btn-ghost btn-sm" id="batchAttendanceBtn">📋 Batch add (week)</button>
             <button class="btn btn-primary btn-sm" id="addAttendanceBtn">+ Log entry</button>
           </div>
         </div>
-        <div class="table-wrap"><div class="table-scroll">
-          <table>
-            <thead><tr><th>Date</th><th>Staff</th><th>Scheduled</th><th>Clock in / out</th><th>Violation</th><th>Notified?</th><th>Excused</th><th>Points</th><th>Notes</th><th></th></tr></thead>
-            <tbody id="attendanceBody"></tbody>
-          </table>
-        </div></div>
+
+        <!-- LIST VIEW -->
+        <div id="attListView">
+          <div class="filters" style="margin-bottom:10px;">
+            <input type="date" id="attendanceDateFilter">
+            <select id="attendanceStaffFilter"><option value="">All staff</option></select>
+            <button class="btn btn-ghost btn-sm" id="exportAttendance">Export CSV</button>
+          </div>
+          <div class="table-wrap"><div class="table-scroll">
+            <table>
+              <thead><tr><th>Date</th><th>Staff</th><th>Scheduled</th><th>Clock in / out</th><th>Violation</th><th>Notified?</th><th>Excused</th><th>Points</th><th>Notes</th><th></th></tr></thead>
+              <tbody id="attendanceBody"></tbody>
+            </table>
+          </div></div>
+        </div>
+
+        <!-- CALENDAR VIEW -->
+        <div id="attCalView" style="display:none;">
+          <div class="filters" style="margin-bottom:10px;justify-content:space-between;display:flex;">
+            <select id="attCalStaffSelect"></select>
+            <div class="week-nav">
+              <button id="attCalPrevMonth">‹</button>
+              <span class="label" id="attCalMonthLabel"></span>
+              <button id="attCalNextMonth">›</button>
+              <button class="btn btn-ghost btn-sm" id="attCalThisMonth" style="margin-left:6px;">This month</button>
+            </div>
+          </div>
+          <div class="cal-grid" id="attCalGrid"></div>
+          <div class="matrix-legend" style="margin-top:10px;">
+            <span class="lg-item"><span class="lg-dot" style="background:#D4F3DC;"></span> On time</span>
+            <span class="lg-item"><span class="lg-dot" style="background:#FFF0AD;"></span> Tardy / early departure</span>
+            <span class="lg-item"><span class="lg-dot" style="background:#FFD9D9;"></span> Absence / no-show</span>
+            <span class="lg-item"><span class="lg-dot" style="background:#EAFDFF;"></span> Excused</span>
+            <span class="lg-item">Click any day to add or edit that entry.</span>
+          </div>
+        </div>
       </div>
 
       <!-- TEAM -->
@@ -575,13 +620,16 @@ function minutesBetweenTimes(t1, t2){
   const [h2,m2] = t2.split(':').map(Number);
   return (h2*60+m2) - (h1*60+m1);
 }
-function suggestViolation(schedStart, clockIn){
-  const diff = minutesBetweenTimes(schedStart, clockIn);
-  if(diff===null) return 'On Time';
-  if(diff<=0) return 'On Time';
-  if(diff<=15) return 'Tardy ≤15 min';
-  if(diff>120) return 'Absence'; // policy: tardiness exceeding 2 hours may be treated as an absence
-  return 'Tardy >15 min';
+function suggestViolation(schedStart, clockIn, schedEnd, clockOut){
+  const diffIn = minutesBetweenTimes(schedStart, clockIn);
+  if(diffIn!==null && diffIn>0){
+    if(diffIn>120) return 'Absence'; // policy: tardiness exceeding 2 hours may be treated as an absence
+    if(diffIn>15) return 'Tardy >15 min';
+    return 'Tardy ≤15 min';
+  }
+  const diffOut = minutesBetweenTimes(clockOut, schedEnd); // positive if they left before scheduled end
+  if(diffOut!==null && diffOut>0) return 'Early Departure';
+  return 'On Time';
 }
 function computeAttendancePoints(entry){
   if(entry.excused) return 0;
@@ -867,6 +915,11 @@ function renderAttendance(){
   const prevVal = sel.value;
   sel.innerHTML = `<option value="">All staff</option>` + staffNames.map(s=>`<option value="${s}" ${s===prevVal?'selected':''}>${s}</option>`).join('');
 
+  const calSel = document.getElementById('attCalStaffSelect');
+  const calPrevVal = calSel.value;
+  calSel.innerHTML = staffNames.map(s=>`<option value="${s}" ${s===calPrevVal?'selected':''}>${s}</option>`).join('') || `<option value="">No staff yet</option>`;
+  if(document.getElementById('attCalView').style.display!=='none') renderAttendanceCalendar();
+
   // log table
   const dateF = document.getElementById('attendanceDateFilter').value;
   const staffF = sel.value;
@@ -898,6 +951,79 @@ function fmt12h(t){
   const h12 = h%12===0?12:h%12;
   return `${h12}:${String(m).padStart(2,'0')} ${ampm}`;
 }
+let attCalMonth = todayStr().slice(0,7); // 'YYYY-MM'
+function attCalShiftMonth(delta){
+  const [y,m] = attCalMonth.split('-').map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  attCalMonth = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+}
+function renderAttendanceCalendar(){
+  const staff = document.getElementById('attCalStaffSelect').value;
+  const [y,m] = attCalMonth.split('-').map(Number);
+  const first = new Date(y, m-1, 1);
+  const monthLabel = first.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  document.getElementById('attCalMonthLabel').textContent = monthLabel;
+
+  const startDow = (first.getDay()+6)%7; // Monday-first index
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const dowLabels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+  let html = dowLabels.map(d=>`<div class="cal-dow">${d}</div>`).join('');
+  for(let i=0;i<startDow;i++){ html += `<div class="cal-day empty"></div>`; }
+  for(let day=1; day<=daysInMonth; day++){
+    const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const entry = staff ? DB.attendance.find(a=>a.staff===staff && a.date===dateStr) : null;
+    let cls = '';
+    let tag = '';
+    if(entry){
+      if(entry.excused){ cls='cd-excused'; tag='Excused'; }
+      else if(entry.violationType==='On Time'){ cls='cd-ontime'; tag='On time'; }
+      else if(entry.violationType==='Tardy ≤15 min'||entry.violationType==='Tardy >15 min'||entry.violationType==='Early Departure'){ cls='cd-minor'; tag=entry.violationType; }
+      else { cls='cd-major'; tag=entry.violationType; }
+    }
+    const isToday = dateStr===todayStr() ? ' today' : '';
+    html += `<div class="cal-day ${cls}${isToday}" onclick="openCalendarDay('${dateStr}')">
+      <span class="cal-daynum">${day}</span>
+      ${tag ? `<span class="cal-tag">${tag}</span>` : ''}
+    </div>`;
+  }
+  document.getElementById('attCalGrid').innerHTML = html;
+}
+function openCalendarDay(dateStr){
+  const staff = document.getElementById('attCalStaffSelect').value;
+  if(!staff){ toast('Choose a staff member first'); return; }
+  const existing = DB.attendance.find(a=>a.staff===staff && a.date===dateStr);
+  if(existing){
+    openAttendanceModal(existing);
+  } else {
+    const roster = DB.staff.find(s=>s.name===staff);
+    openAttendanceModal(null, {
+      id:null, date:dateStr, staff,
+      schedStart: roster?.schedStart||'', schedEnd: roster?.schedEnd||'', scheduleOverride:false,
+      clockIn:'', clockOut:'', violationType:'On Time', notifiedProperly:'N/A',
+      excused:false, excuseReason:'', notes:'', _title:`Log attendance — ${fmtDate(dateStr)}`
+    });
+  }
+}
+window.openCalendarDay = openCalendarDay;
+document.getElementById('attCalStaffSelect').onchange = renderAttendanceCalendar;
+document.getElementById('attCalPrevMonth').onclick = ()=>{ attCalShiftMonth(-1); renderAttendanceCalendar(); };
+document.getElementById('attCalNextMonth').onclick = ()=>{ attCalShiftMonth(1); renderAttendanceCalendar(); };
+document.getElementById('attCalThisMonth').onclick = ()=>{ attCalMonth = todayStr().slice(0,7); renderAttendanceCalendar(); };
+document.getElementById('attViewListBtn').onclick = ()=>{
+  document.getElementById('attViewListBtn').classList.add('active');
+  document.getElementById('attViewCalBtn').classList.remove('active');
+  document.getElementById('attListView').style.display = '';
+  document.getElementById('attCalView').style.display = 'none';
+};
+document.getElementById('attViewCalBtn').onclick = ()=>{
+  document.getElementById('attViewCalBtn').classList.add('active');
+  document.getElementById('attViewListBtn').classList.remove('active');
+  document.getElementById('attCalView').style.display = '';
+  document.getElementById('attListView').style.display = 'none';
+  renderAttendanceCalendar();
+};
+
 function openAttendanceModal(existing, prefill){
   const a = existing || prefill || {
     id:null, date:document.getElementById('attendanceDateFilter').value||todayStr(), staff:'',
@@ -910,7 +1036,7 @@ function openAttendanceModal(existing, prefill){
     overlay.classList.add('active');
     return;
   }
-  const excuseOptions = ['PTO with prior approval','Approved protected leave (FMLA/ADA/sick)',"Workers' compensation leave",'Jury duty','Bereavement leave','Other legally protected absence','Manager discretion'];
+  const excuseOptions = ['PTO with prior approval','Approved protected leave (FMLA/ADA/sick)',"Workers' compensation leave",'Jury duty','Bereavement leave','Other legally protected absence','One on One (addressed directly)','Manager discretion'];
   const staffOpts = DB.staff.map(s=>s.name).sort().map(n=>`<option value="${escAttr(n)}" ${n===a.staff?'selected':''}>${n}</option>`).join('');
   const hasOverride = existing ? (existing.scheduleOverride || false) : false;
 
@@ -1006,14 +1132,19 @@ function openAttendanceModal(existing, prefill){
     document.getElementById('excuseReasonWrap').style.display = e.target.checked ? 'block' : 'none';
     updatePreview();
   };
-  document.getElementById('f_clockIn').oninput = ()=>{
+  const autoSuggest = ()=>{
     const schedStart = document.getElementById('f_schedStart').value;
+    const schedEnd = document.getElementById('f_schedEnd').value;
     const clockIn = document.getElementById('f_clockIn').value;
-    if(schedStart && clockIn){
-      document.getElementById('f_violation').value = suggestViolation(schedStart, clockIn);
+    const clockOut = document.getElementById('f_clockOut').value;
+    if(clockIn || clockOut){
+      document.getElementById('f_violation').value = suggestViolation(schedStart, clockIn, schedEnd, clockOut);
+      toggleTimeFields();
       updatePreview();
     }
   };
+  document.getElementById('f_clockIn').oninput = autoSuggest;
+  document.getElementById('f_clockOut').oninput = autoSuggest;
   updatePreview();
 
   document.getElementById('saveAttendanceBtn').onclick = async ()=>{
@@ -1069,7 +1200,7 @@ let batchWeekStart = getMonday(todayStr());
 function batchWeekDates(){ return [0,1,2,3,4,5,6].map(i=>addDays(batchWeekStart,i)); }
 const BATCH_DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const BATCH_VIOLATIONS = ['— Skip —','On Time','Tardy ≤15 min','Tardy >15 min','Early Departure','Absence','No-Call/No-Show'];
-const EXCUSE_OPTIONS_BATCH = ['PTO with prior approval','Approved protected leave (FMLA/ADA/sick)',"Workers' compensation leave",'Jury duty','Bereavement leave','Other legally protected absence','Manager discretion'];
+const EXCUSE_OPTIONS_BATCH = ['PTO with prior approval','Approved protected leave (FMLA/ADA/sick)',"Workers' compensation leave",'Jury duty','Bereavement leave','Other legally protected absence','One on One (addressed directly)','Manager discretion'];
 
 function openBatchAttendanceModal(){
   if(DB.staff.length===0){
@@ -1144,15 +1275,18 @@ function renderBatchDays(){
   // wire per-day interactivity
   dates.forEach(d=>{
     const clockIn = wrap.querySelector(`.batch-clockin[data-date="${d}"]`);
+    const clockOut = wrap.querySelector(`.batch-clockout[data-date="${d}"]`);
     const violation = wrap.querySelector(`.batch-violation[data-date="${d}"]`);
     const excused = wrap.querySelector(`.batch-excused[data-date="${d}"]`);
     const reasonWrap = wrap.querySelector(`.batch-excuse-reason-wrap[data-date="${d}"]`);
     if(!clockIn) return; // row already logged, skipped
-    clockIn.oninput = ()=>{
-      if(clockIn.value && schedStart && violation.value==='— Skip —'){
-        violation.value = suggestViolation(schedStart, clockIn.value);
+    const autoSuggest = ()=>{
+      if((clockIn.value || clockOut.value) && violation.value==='— Skip —'){
+        violation.value = suggestViolation(schedStart, clockIn.value, schedEnd, clockOut.value);
       }
     };
+    clockIn.oninput = autoSuggest;
+    clockOut.oninput = autoSuggest;
     excused.onchange = ()=>{ reasonWrap.style.display = excused.checked ? '' : 'none'; };
   });
 }
@@ -2136,7 +2270,7 @@ window.quickResolveNote = quickResolveNote;
 
 function openNoteModal(existing, prefill, focusResolve){
   const n = existing || prefill || {id:null, date:todayStr(), staff:'', category:'Performance', note:'', createdBy:currentStaffName||'', status:'Open', deliveryMethod:'', deliveredBy:'', deliveredDate:''};
-  const DELIVERY_METHODS = ['In Person','Slack','Email','Phone Call','Video Call','Other'];
+  const DELIVERY_METHODS = ['In Person','One on One','Slack','Email','Phone Call','Video Call','Other'];
   modalBody.innerHTML = `
     <h3>${existing?'Edit coaching note':'Add coaching note'}</h3>
     <div class="form-grid">
@@ -2147,6 +2281,7 @@ function openNoteModal(existing, prefill, focusResolve){
         <option ${n.category==='Missed Task'?'selected':''}>Missed Task</option>
         <option ${n.category==='Workflow Error'?'selected':''}>Workflow Error</option>
         <option ${n.category==='Attendance'?'selected':''}>Attendance</option>
+        <option ${n.category==='One on One'?'selected':''}>One on One</option>
         <option ${n.category==='Behavior'?'selected':''}>Behavior</option>
         <option ${n.category==='Positive feedback'?'selected':''}>Positive feedback</option>
         <option ${n.category==='Other'?'selected':''}>Other</option>
