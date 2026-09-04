@@ -267,10 +267,6 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><circle cx="17" cy="8" r="3"/><path d="M17.5 14c2.5 0.3 4.5 2.5 4.5 6"/></svg>
       Team
     </button>
-    <button class="nav-btn manager-only" data-view="metrics">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l5-6 4 3 5-8"/><path d="M3 21h18"/></svg>
-      Metrics
-    </button>
     <div class="sidebar-foot" style="margin-top:auto;">
       <button class="mode-pill staff-signin-link" id="managerSigninBtn">🔒 Manager sign-in</button>
       <button class="mode-pill manager-exit-link" id="exitManagerBtn">↩ Exit manager view</button>
@@ -492,9 +488,26 @@
         </div>
       </div>
 
-      <!-- TEAM -->
+      <!-- TEAM (merged with former Metrics) -->
       <div class="view manager-only" id="view-team">
-        <div class="panel-head"><h2>My Direct Reports <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· combined snapshot, this period</span></h2></div>
+        <div class="panel-head">
+          <h2>Team</h2>
+          <div class="filters">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:var(--purple);">
+              Viewing:
+              <select id="teamMasterFilter" style="font-weight:700;"><option value="">All staff</option></select>
+            </label>
+          </div>
+        </div>
+
+        <div class="kpi-grid" style="margin-bottom:18px;">
+          <div class="kpi" style="--accent:#B3204D" id="kpiFlaggedCard"><div class="label" id="metricsKpiFlaggedLabel">Flagged staff</div><div class="value" id="metricsKpiFlagged">0</div><div class="delta" id="metricsKpiFlaggedDelta">&mdash;</div></div>
+          <div class="kpi" style="--accent:var(--blue)"><div class="label" id="metricsKpiAvgTimeLabel">Team avg. processing time</div><div class="value" id="metricsKpiAvgTime">&mdash;</div><div class="delta">This period</div></div>
+          <div class="kpi" style="--accent:#1f7a44"><div class="label" id="metricsKpiAttendanceLabel">Avg. attendance points (6mo)</div><div class="value" id="metricsKpiAttendance">&mdash;</div><div class="delta">Per staff member</div></div>
+          <div class="kpi" style="--accent:var(--orange)"><div class="label">Coaching notes logged</div><div class="value" id="metricsKpiNotes">0</div><div class="delta">This period</div></div>
+        </div>
+
+        <div class="panel-head"><h2 id="reportsOverviewTitle">My Direct Reports <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· combined snapshot, this period</span></h2></div>
         <div class="score-grid" id="reportsOverviewGrid" style="margin-bottom:26px;"></div>
 
         <div class="panel-head"><h2>Task Efficiency Matrix <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· avg. processing time per task, per staff member</span></h2></div>
@@ -505,7 +518,7 @@
           <span class="lg-item"><span class="lg-dot" style="background:var(--white);border:1px solid var(--line);"></span> Normal, or fewer than 3 logged to compare fairly</span>
         </div>
 
-        <div class="panel-head"><h2>Agent Breakdown</h2></div>
+        <div class="panel-head"><h2 id="agentBreakdownTitle">Agent Breakdown</h2></div>
         <div class="table-wrap" style="margin-bottom:22px;"><div class="table-scroll">
           <table>
             <thead><tr><th>Agent</th><th>Tasks completed</th><th>Avg. processing time</th><th>Total volume</th><th>Avg. lunch length</th><th>Attendance points (6mo)</th></tr></thead>
@@ -514,30 +527,8 @@
         </div></div>
 
         <div class="panel-head">
-          <h2>Personal Dashboard</h2>
-          <div class="filters">
-            <select id="personalAgentSelect"><option value="">Choose a staff member…</option></select>
-          </div>
-        </div>
-        <div class="table-wrap"><div class="table-scroll">
-          <table>
-            <thead><tr><th>Task</th><th>Their avg. time</th><th>Team avg. time</th><th>Vs. team</th></tr></thead>
-            <tbody id="personalBody"></tbody>
-          </table>
-        </div></div>
-      </div>
-
-      <!-- METRICS -->
-      <div class="view manager-only" id="view-metrics">
-        <div class="kpi-grid" style="margin-bottom:18px;">
-          <div class="kpi" style="--accent:#B3204D"><div class="label">Flagged staff</div><div class="value" id="metricsKpiFlagged">0</div><div class="delta" id="metricsKpiFlaggedDelta">&mdash;</div></div>
-          <div class="kpi" style="--accent:var(--blue)"><div class="label">Team avg. processing time</div><div class="value" id="metricsKpiAvgTime">&mdash;</div><div class="delta">This period</div></div>
-          <div class="kpi" style="--accent:#1f7a44"><div class="label">Avg. attendance points (6mo)</div><div class="value" id="metricsKpiAttendance">&mdash;</div><div class="delta">Per staff member</div></div>
-          <div class="kpi" style="--accent:var(--orange)"><div class="label">Coaching notes logged</div><div class="value" id="metricsKpiNotes">0</div><div class="delta">This period</div></div>
-        </div>
-        <div class="panel-head">
-          <h2>Performance Alerts <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· this period vs. baseline</span></h2>
-          <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--purple);cursor:pointer;">
+          <h2 id="alertsTitle">Performance Alerts <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· this period vs. baseline</span></h2>
+          <label id="showAllToggleWrap" style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--purple);cursor:pointer;">
             <input type="checkbox" id="metricsShowAllToggle"> Show all staff, not just flagged
           </label>
         </div>
@@ -548,10 +539,17 @@
           </table>
         </div></div>
 
+        <div class="panel-head"><h2>Task-by-Task Detail</h2></div>
+        <div class="table-wrap" style="margin-bottom:22px;"><div class="table-scroll">
+          <table>
+            <thead><tr><th>Task</th><th>Their avg. time</th><th>Team avg. time</th><th>Vs. team</th></tr></thead>
+            <tbody id="personalBody"></tbody>
+          </table>
+        </div></div>
+
         <div class="panel-head">
           <h2>Coaching Notes</h2>
           <div class="filters">
-            <select id="notesStaffFilter"><option value="">All staff</option></select>
             <select id="notesStatusFilter"><option value="">All statuses</option><option>Open</option><option>Resolved</option></select>
             <button class="btn btn-ghost btn-sm" id="exportNotes">Export CSV</button>
             <button class="btn btn-primary btn-sm" id="addNoteBtn">+ Add note</button>
@@ -717,7 +715,7 @@ function attachLiveSync(){
       const banner = document.getElementById('connectionBanner');
       if(banner) banner.style.display = 'none';
       refreshAgentSuggestions();
-      renderWeekGrid(); renderDailyTasks(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderMetrics(); renderJobAids();
+      renderWeekGrid(); renderDailyTasks(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids();
     }, err=>console.error('sync error', k, err));
   });
 }
@@ -729,8 +727,7 @@ const titles = {
   lunch:['Lunch','Clock out and back in, track lunch duration by staff'],
   jobaids:['Job Aids','Reference links for each recurring task'],
   attendance:['Attendance','Log daily attendance and spot patterns'],
-  team:['Team','Agent breakdown and personal performance view'],
-  metrics:['Metrics','Spot performance drops and log coaching notes']
+  team:['Team','Agent breakdown, performance alerts, and coaching notes — filterable to one person']
 };
 document.querySelectorAll('.nav-btn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
@@ -747,7 +744,6 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
     if(v==='jobaids') renderJobAids();
     if(v==='attendance') renderAttendance();
     if(v==='team') renderTeam();
-    if(v==='metrics') renderMetrics();
   });
 });
 
@@ -1177,14 +1173,14 @@ function openAttendanceModal(existing, prefill){
     };
     rec.points = computeAttendancePoints(rec);
     if(existing){ DB.attendance = DB.attendance.map(x=>x.id===rec.id?rec:x); } else { DB.attendance.push(rec); }
-    await saveOne('attendance'); closeModal(); renderAttendance(); renderTeam(); renderMetrics(); refreshAgentSuggestions(); toast(`Saved — ${rec.points} point(s) assessed`);
+    await saveOne('attendance'); closeModal(); renderAttendance(); renderTeam(); refreshAgentSuggestions(); toast(`Saved — ${rec.points} point(s) assessed`);
   };
 }
 window.openAttendanceModal = openAttendanceModal;
 async function deleteAttendance(id){
   if(!confirm('Delete this attendance entry?')) return;
   DB.attendance = DB.attendance.filter(a=>a.id!==id);
-  await saveOne('attendance'); renderAttendance(); renderTeam(); renderMetrics(); toast('Deleted');
+  await saveOne('attendance'); renderAttendance(); renderTeam(); toast('Deleted');
 }
 window.deleteAttendance = deleteAttendance;
 document.getElementById('attendanceDateFilter').onchange = renderAttendance;
@@ -1328,7 +1324,7 @@ async function saveBatchAttendance(){
   if(added===0){ toast('Nothing entered — fill in at least one day'); return; }
   await saveOne('attendance');
   closeModal();
-  renderAttendance(); renderTeam(); renderMetrics(); refreshAgentSuggestions();
+  renderAttendance(); renderTeam(); refreshAgentSuggestions();
   toast(`Added ${added} attendance entr${added===1?'y':'ies'} for ${staffName}`);
 }
 
@@ -1956,7 +1952,7 @@ async function purgeStaffData(name){
   DB.staff = DB.staff.filter(s=>(s.name||'').toLowerCase()!==nameLower);
   await saveAll();
   refreshAgentSuggestions();
-  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderMetrics();
+  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam();
   toast(`Removed all records for "${name}"`);
 }
 window.purgeStaffData = purgeStaffData;
@@ -2044,7 +2040,19 @@ function renderTeam(){
   const baseTasksInRange = DB.dailyTasks.filter(t=>inRange(t.date, baseline) && t.status==='Completed' && t.processingHrs!==''&&t.processingHrs!=null);
   const lunchInRange = DB.lunchLog.filter(l=>inRange(l.date, range) && l.durationMin!=='' && l.durationMin!=null);
 
-  const agents = [...new Set([...DB.staff.map(s=>s.name), ...tasksInRange.map(t=>t.agent), ...lunchInRange.map(l=>l.staff), ...DB.attendance.map(a=>a.staff)].filter(Boolean))].sort();
+  const allAgents = [...new Set([...DB.staff.map(s=>s.name), ...tasksInRange.map(t=>t.agent), ...lunchInRange.map(l=>l.staff), ...DB.attendance.map(a=>a.staff)].filter(Boolean))].sort();
+
+  // master filter dropdown
+  const masterSel = document.getElementById('teamMasterFilter');
+  const masterPrev = masterSel.value;
+  masterSel.innerHTML = `<option value="">All staff</option>` + allAgents.map(a=>`<option value="${a}" ${a===masterPrev?'selected':''}>${a}</option>`).join('');
+  const selectedStaff = masterSel.value;
+  const agents = selectedStaff ? allAgents.filter(a=>a===selectedStaff) : allAgents;
+
+  document.getElementById('reportsOverviewTitle').innerHTML = selectedStaff
+    ? `${selectedStaff}'s Overview <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· this period</span>`
+    : `My Direct Reports <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· combined snapshot, this period</span>`;
+  document.getElementById('agentBreakdownTitle').textContent = selectedStaff ? `${selectedStaff}'s Numbers` : 'Agent Breakdown';
 
   renderTaskMatrix(range, agents);
 
@@ -2112,36 +2120,32 @@ function renderTeam(){
     }).join('');
   }
 
-  // populate personal agent selector
-  const sel = document.getElementById('personalAgentSelect');
-  const prevVal = sel.value;
-  sel.innerHTML = `<option value="">Choose a staff member…</option>` + agents.map(a=>`<option value="${a}" ${a===prevVal?'selected':''}>${a}</option>`).join('');
-  renderPersonal();
+  renderPersonal(selectedStaff);
+  renderMetrics(selectedStaff);
 }
 
 function jumpToPersonal(agent){
   document.querySelector('.nav-btn[data-view="team"]').click();
-  const sel = document.getElementById('personalAgentSelect');
+  const sel = document.getElementById('teamMasterFilter');
   sel.value = agent;
-  renderPersonal();
-  setTimeout(()=>sel.scrollIntoView({behavior:'smooth', block:'center'}), 100);
+  renderTeam();
+  setTimeout(()=>document.getElementById('personalBody').scrollIntoView({behavior:'smooth', block:'center'}), 100);
 }
 window.jumpToPersonal = jumpToPersonal;
 
 function jumpToMetricsNotes(agent){
-  document.querySelector('.nav-btn[data-view="metrics"]').click();
-  setTimeout(()=>{
-    const sel = document.getElementById('notesStaffFilter');
-    if(sel){ sel.value = agent; renderCoachingNotes(); sel.scrollIntoView({behavior:'smooth', block:'center'}); }
-  }, 50);
+  document.querySelector('.nav-btn[data-view="team"]').click();
+  const sel = document.getElementById('teamMasterFilter');
+  sel.value = agent;
+  renderTeam();
+  setTimeout(()=>document.getElementById('notesBody').scrollIntoView({behavior:'smooth', block:'center'}), 100);
 }
 window.jumpToMetricsNotes = jumpToMetricsNotes;
 
-function renderPersonal(){
+function renderPersonal(agent){
   const range = periodRange(dashPeriod);
-  const agent = document.getElementById('personalAgentSelect').value;
   const body = document.getElementById('personalBody');
-  if(!agent){ body.innerHTML = `<tr><td colspan="4"><div class="empty">Choose a staff member above to see their personal breakdown.</div></td></tr>`; return; }
+  if(!agent){ body.innerHTML = `<tr><td colspan="4"><div class="empty">Choose a staff member from "Viewing" above to see their task-by-task breakdown.</div></td></tr>`; return; }
 
   const tasksInRange = DB.dailyTasks.filter(t=>inRange(t.date, range) && t.status==='Completed' && t.processingHrs!==''&&t.processingHrs!=null);
   const theirs = tasksInRange.filter(t=>t.agent===agent);
@@ -2171,27 +2175,42 @@ function renderPersonal(){
     </tr>`;
   }).join('');
 }
-document.getElementById('personalAgentSelect').onchange = renderPersonal;
+document.getElementById('teamMasterFilter').onchange = renderTeam;
 
 /* ---------------- metrics: performance alerts + coaching notes ---------------- */
-function renderMetrics(){
+function renderMetrics(selectedStaff){
   const range = periodRange(dashPeriod);
   const baseline = baselineRange(dashPeriod);
   const asOf = todayStr();
   const curTasks = DB.dailyTasks.filter(t=>inRange(t.date, range) && t.status==='Completed' && t.processingHrs!==''&&t.processingHrs!=null);
   const baseTasks = DB.dailyTasks.filter(t=>inRange(t.date, baseline) && t.status==='Completed' && t.processingHrs!==''&&t.processingHrs!=null);
-  const curNotes = DB.coachingNotes.filter(n=>inRange(n.date, range));
+  const curNotes = DB.coachingNotes.filter(n=>inRange(n.date, range) && (!selectedStaff || n.staff===selectedStaff));
 
-  const agents = [...new Set([...DB.staff.map(s=>s.name), ...curTasks.map(t=>t.agent)].filter(Boolean))].sort();
+  const allAgents = [...new Set([...DB.staff.map(s=>s.name), ...curTasks.map(t=>t.agent)].filter(Boolean))].sort();
+  const agents = selectedStaff ? allAgents.filter(a=>a===selectedStaff) : allAgents;
   const body = document.getElementById('metricsAlertsBody');
+  const showAllToggleWrap = document.getElementById('showAllToggleWrap');
   const showAll = document.getElementById('metricsShowAllToggle').checked;
 
-  // team-wide KPIs
-  const allCurTimes = curTasks.map(t=>parseFloat(t.processingHrs));
+  // relabel KPIs based on filter
+  document.getElementById('kpiFlaggedCard').style.display = selectedStaff ? 'none' : '';
+  showAllToggleWrap.style.display = selectedStaff ? 'none' : '';
+  document.getElementById('metricsKpiAvgTimeLabel').textContent = selectedStaff ? 'Their avg. processing time' : 'Team avg. processing time';
+  document.getElementById('metricsKpiAttendanceLabel').textContent = selectedStaff ? 'Attendance points (6mo)' : 'Avg. attendance points (6mo)';
+  document.getElementById('alertsTitle').innerHTML = selectedStaff
+    ? `Performance Detail <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· this period vs. baseline</span>`
+    : `Performance Alerts <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· this period vs. baseline</span>`;
+
+  // KPIs
+  const allCurTimes = curTasks.filter(t=>!selectedStaff || t.agent===selectedStaff).map(t=>parseFloat(t.processingHrs));
   const teamAvgTime = allCurTimes.length ? allCurTimes.reduce((a,b)=>a+b,0)/allCurTimes.length : null;
   document.getElementById('metricsKpiAvgTime').textContent = teamAvgTime!==null ? formatHrsMins(teamAvgTime) : '—';
-  const totalAttPoints = agents.reduce((s,agent)=>s+rollingAttendancePoints(agent, asOf), 0);
-  document.getElementById('metricsKpiAttendance').textContent = agents.length ? (totalAttPoints/agents.length).toFixed(1)+' avg pts' : '—';
+  if(selectedStaff){
+    document.getElementById('metricsKpiAttendance').textContent = rollingAttendancePoints(selectedStaff, asOf)+'pt';
+  } else {
+    const totalAttPoints = agents.reduce((s,agent)=>s+rollingAttendancePoints(agent, asOf), 0);
+    document.getElementById('metricsKpiAttendance').textContent = agents.length ? (totalAttPoints/agents.length).toFixed(1)+' avg pts' : '—';
+  }
   document.getElementById('metricsKpiNotes').textContent = curNotes.length;
 
   if(agents.length===0){
@@ -2219,7 +2238,7 @@ function renderMetrics(){
     document.getElementById('metricsKpiFlagged').textContent = flaggedCount;
     document.getElementById('metricsKpiFlaggedDelta').textContent = flaggedCount===0 ? 'All clear' : (flaggedCount===1?'1 staff member':`${flaggedCount} staff members`);
 
-    const visibleRows = showAll ? rows : rows.filter(r=>r.flagged);
+    const visibleRows = selectedStaff ? rows : (showAll ? rows : rows.filter(r=>r.flagged));
     if(visibleRows.length===0){
       body.innerHTML = `<tr><td colspan="6"><div class="empty">${showAll ? 'No staff data for this period yet.' : 'No one needs attention right now — check "Show all staff" to see everyone.'}</div></td></tr>`;
     } else {
@@ -2238,17 +2257,12 @@ function renderMetrics(){
     }
   }
 
-  // staff filter for notes
-  const sel = document.getElementById('notesStaffFilter');
-  const prevVal = sel.value;
-  sel.innerHTML = `<option value="">All staff</option>` + agents.map(a=>`<option value="${a}" ${a===prevVal?'selected':''}>${a}</option>`).join('');
-  renderCoachingNotes();
+  renderCoachingNotes(selectedStaff);
 }
 
-function renderCoachingNotes(){
-  const staffF = document.getElementById('notesStaffFilter').value;
+function renderCoachingNotes(selectedStaff){
   const statusF = document.getElementById('notesStatusFilter').value;
-  const rows = DB.coachingNotes.filter(n=>(!staffF || n.staff===staffF) && (!statusF || (n.status||'Open')===statusF)).sort((a,b)=>b.date.localeCompare(a.date));
+  const rows = DB.coachingNotes.filter(n=>(!selectedStaff || n.staff===selectedStaff) && (!statusF || (n.status||'Open')===statusF)).sort((a,b)=>b.date.localeCompare(a.date));
   const body = document.getElementById('notesBody');
   if(rows.length===0){ body.innerHTML = `<tr><td colspan="8"><div class="empty">No coaching notes logged yet.</div></td></tr>`; return; }
   body.innerHTML = rows.map(n=>{
@@ -2332,19 +2346,18 @@ function openNoteModal(existing, prefill, focusResolve){
       deliveredDate: resolved ? document.getElementById('f_deliveredDate').value : ''
     };
     if(existing){ DB.coachingNotes = DB.coachingNotes.map(x=>x.id===rec.id?rec:x); } else { DB.coachingNotes.push(rec); }
-    await saveOne('coachingNotes'); closeModal(); renderCoachingNotes(); toast(resolved ? 'Marked resolved' : 'Note saved');
+    await saveOne('coachingNotes'); closeModal(); renderTeam(); toast(resolved ? 'Marked resolved' : 'Note saved');
   };
 }
 window.openNoteModal = openNoteModal;
 async function deleteNote(id){
   if(!confirm('Delete this coaching note?')) return;
   DB.coachingNotes = DB.coachingNotes.filter(n=>n.id!==id);
-  await saveOne('coachingNotes'); renderCoachingNotes(); toast('Deleted');
+  await saveOne('coachingNotes'); renderTeam(); toast('Deleted');
 }
 window.deleteNote = deleteNote;
-document.getElementById('metricsShowAllToggle').onchange = renderMetrics;
-document.getElementById('notesStaffFilter').onchange = renderCoachingNotes;
-document.getElementById('notesStatusFilter').onchange = renderCoachingNotes;
+document.getElementById('metricsShowAllToggle').onchange = ()=>renderMetrics(document.getElementById('teamMasterFilter').value);
+document.getElementById('notesStatusFilter').onchange = ()=>renderCoachingNotes(document.getElementById('teamMasterFilter').value);
 document.getElementById('addNoteBtn').onclick = ()=>openNoteModal(null);
 document.getElementById('exportNotes').onclick = ()=>{
   const csv = toCSV(DB.coachingNotes, [
@@ -2510,13 +2523,13 @@ document.getElementById('periodDailyBtn').onclick = ()=>{
   dashPeriod = 'daily';
   document.getElementById('periodDailyBtn').classList.add('active');
   document.getElementById('periodWeeklyBtn').classList.remove('active');
-  renderDashboard(); renderTeam(); renderMetrics();
+  renderDashboard(); renderTeam();
 };
 document.getElementById('periodWeeklyBtn').onclick = ()=>{
   dashPeriod = 'weekly';
   document.getElementById('periodWeeklyBtn').classList.add('active');
   document.getElementById('periodDailyBtn').classList.remove('active');
-  renderDashboard(); renderTeam(); renderMetrics();
+  renderDashboard(); renderTeam();
 };
 
 document.getElementById('manageTasksBtn').onclick = ()=>openManageTasksModal();
@@ -2542,7 +2555,7 @@ document.getElementById('resetBtn').onclick = async ()=>{
   DB.attendance = [];
   DB.coachingNotes = [];
   await saveAll();
-  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderMetrics(); renderJobAids(); refreshAgentSuggestions();
+  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); refreshAgentSuggestions();
   toast('Test data cleared');
 };
 
@@ -2567,7 +2580,6 @@ document.getElementById('resetBtn').onclick = async ()=>{
     renderLunch();
     renderAttendance();
     renderTeam();
-    renderMetrics();
     renderJobAids();
   }catch(e){
     console.error(e);
