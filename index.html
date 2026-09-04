@@ -259,6 +259,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.07 0l1.93-1.93a5 5 0 0 0-7.07-7.07L10.5 5.43"/><path d="M14 11a5 5 0 0 0-7.07 0l-1.93 1.93a5 5 0 0 0 7.07 7.07L13.5 18.57"/></svg>
       Job Aids
     </button>
+    <button class="nav-btn" data-view="tickets">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z"/></svg>
+      Tickets
+    </button>
     <button class="nav-btn manager-only" data-view="attendance">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M4 10h16"/><path d="M8 14h2M8 18h2M14 14h2M14 18h2"/></svg>
       Attendance
@@ -427,6 +431,24 @@
         <div class="score-grid" id="jobAidsGrid"></div>
       </div>
 
+      <!-- TICKETS -->
+      <div class="view" id="view-tickets">
+        <div class="panel-head">
+          <h2>Tickets</h2>
+          <div class="filters">
+            <select id="ticketStatusFilter"><option value="">All statuses</option><option>Open</option><option>In Progress</option><option>Rejected - Non-Bot Issue</option><option>Backlog</option><option>Completed</option></select>
+            <button class="btn btn-primary btn-sm" id="createTicketBtn">🎫 Create ticket</button>
+          </div>
+        </div>
+        <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-10px 0 16px;">Spotted a duplicate or confusing thread in Slack? Create a ticket here, then paste the number at the very start of that Slack thread so it's easy to track.</p>
+        <div class="table-wrap"><div class="table-scroll">
+          <table>
+            <thead><tr><th>Ticket #</th><th>Created</th><th>Created by</th><th>Description</th><th>Status</th><th>Context / notes</th><th></th></tr></thead>
+            <tbody id="ticketsBody"></tbody>
+          </table>
+        </div></div>
+      </div>
+
       <!-- ATTENDANCE -->
       <div class="view manager-only" id="view-attendance">
         <div class="panel-head"><h2>Attendance Points <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· 6-month rolling window, per policy</span></h2></div>
@@ -573,8 +595,8 @@
 
 <script>
 /* ---------------- storage ---------------- */
-const KEYS = { taskTemplates:'task-templates-data', dailyTasks:'daily-tasks-data', lunchLog:'lunch-log-data', staff:'staff-roster-data', attendance:'attendance-data', coachingNotes:'coaching-notes-data', settings:'app-settings-data', jobAids:'job-aids-data' };
-let DB = { taskTemplates:[], dailyTasks:[], lunchLog:[], staff:[], attendance:[], coachingNotes:[], settings:{}, jobAids:[] };
+const KEYS = { taskTemplates:'task-templates-data', dailyTasks:'daily-tasks-data', lunchLog:'lunch-log-data', staff:'staff-roster-data', attendance:'attendance-data', coachingNotes:'coaching-notes-data', settings:'app-settings-data', jobAids:'job-aids-data', tickets:'tickets-data' };
+let DB = { taskTemplates:[], dailyTasks:[], lunchLog:[], staff:[], attendance:[], coachingNotes:[], settings:{}, jobAids:[], tickets:[] };
 
 const DEFAULT_TASK_TEMPLATES = [
   'Review/ Dump CMM Shipped','Review/ Dump Arizona Shipped','NDP Bot Failed','Troubleshoot Bots',
@@ -715,7 +737,7 @@ function attachLiveSync(){
       const banner = document.getElementById('connectionBanner');
       if(banner) banner.style.display = 'none';
       refreshAgentSuggestions();
-      renderWeekGrid(); renderDailyTasks(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids();
+      renderWeekGrid(); renderDailyTasks(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets();
     }, err=>console.error('sync error', k, err));
   });
 }
@@ -726,6 +748,7 @@ const titles = {
   tasks:['Daily Tasks',"Recurring bot/queue tasks — start, complete, and log BestRx/Portal volume"],
   lunch:['Lunch','Clock out and back in, track lunch duration by staff'],
   jobaids:['Job Aids','Reference links for each recurring task'],
+  tickets:['Tickets','Create a QA ticket number for tracking Slack threads'],
   attendance:['Attendance','Log daily attendance and spot patterns'],
   team:['Team','Agent breakdown, performance alerts, and coaching notes — filterable to one person']
 };
@@ -742,6 +765,7 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
     if(v==='tasks'){ renderWeekGrid(); renderDailyTasks(); }
     if(v==='lunch') renderLunch();
     if(v==='jobaids') renderJobAids();
+    if(v==='tickets') renderTickets();
     if(v==='attendance') renderAttendance();
     if(v==='team') renderTeam();
   });
@@ -1567,13 +1591,89 @@ function openGridCell(id){
     <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>`;
   overlay.classList.add('active');
   const startBtn = document.getElementById('qaStart');
-  if(startBtn) startBtn.onclick = async ()=>{ closeModal(); await startTask(id); renderWeekGrid(); };
+  if(startBtn) startBtn.onclick = ()=>{ openStartPrompt(id, t.agent||currentStaffName||''); };
   const completeBtn = document.getElementById('qaComplete');
   if(completeBtn) completeBtn.onclick = ()=>{ openCompleteModal(id); };
   document.getElementById('qaEdit').onclick = ()=>{ openTaskEntryModal(t); };
   document.getElementById('qaDelete').onclick = async ()=>{ closeModal(); await deleteTask(id); renderWeekGrid(); };
 }
 window.openGridCell = openGridCell;
+
+/* ---------------- start-of-task volume prompt ---------------- */
+function openStartPrompt(id, startedByName){
+  const t = DB.dailyTasks.find(x=>x.id===id); if(!t) return;
+  modalBody.innerHTML = `
+    <h3>Start: ${t.task} <span style="font-size:12px;color:rgba(46,3,38,0.55);font-weight:600;">(${t.shift})</span></h3>
+    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-4px 0 12px;">If this task pulls from the Portal or a BestRx queue, log what's waiting so carryover can be tracked. Leave blank if it doesn't apply.</p>
+    <div class="form-grid">
+      <div class="field"><label>Portal pages (10 items/page)</label><input type="number" id="f_startPages" min="0" placeholder="e.g. 4"></div>
+      <div class="field"><label>BestRx queue volume</label><input type="number" id="f_startQueue" min="0" placeholder="e.g. 12"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="skipStartBtn">Skip</button>
+      <button class="btn btn-primary" id="confirmStartBtn">Start task</button>
+    </div>`;
+  overlay.classList.add('active');
+  const doStart = async (pages, queue)=>{
+    if(!t.agent && startedByName) t.agent = startedByName;
+    t.status='In Progress';
+    t.startedAt = nowLocalInput();
+    t.startedBy = startedByName || t.agent || '';
+    t.startPortalPages = pages;
+    t.startBestRxQueue = queue;
+    t.startVolume = (parseFloat(pages)||0)*10 + (parseFloat(queue)||0);
+    await saveOne('dailyTasks');
+    closeModal();
+    renderWeekGrid(); renderDailyTasks(); refreshAgentSuggestions();
+    toast('Task started');
+  };
+  document.getElementById('confirmStartBtn').onclick = ()=>{
+    doStart(document.getElementById('f_startPages').value, document.getElementById('f_startQueue').value);
+  };
+  document.getElementById('skipStartBtn').onclick = ()=>{ doStart('',''); };
+}
+window.openStartPrompt = openStartPrompt;
+
+/* ---------------- completion feedback prompt (staff-facing, simplified) ---------------- */
+function openStaffCompletePrompt(id){
+  const t = DB.dailyTasks.find(x=>x.id===id); if(!t) return;
+  modalBody.innerHTML = `
+    <h3>Complete: ${t.task} <span style="font-size:12px;color:rgba(46,3,38,0.55);font-weight:600;">(${t.shift})</span></h3>
+    <div class="form-grid">
+      <div class="field full"><label>Feedback / notes (optional)</label><textarea id="f_feedback" rows="3" placeholder="Anything worth flagging about this task?"></textarea></div>
+      <div class="field full" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="f_cleared" checked style="width:auto;">
+        <label style="margin:0;">Cleared the queue completely</label>
+      </div>
+      <div class="field full" id="carryoverWrap" style="display:none;">
+        <label>How much is left (carryover)?</label>
+        <input type="number" id="f_carryover" min="0" placeholder="e.g. 5">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="confirmCompleteBtn" style="background:#1f7a44;">✓ Mark complete</button>
+    </div>`;
+  overlay.classList.add('active');
+  document.getElementById('f_cleared').onchange = (e)=>{
+    document.getElementById('carryoverWrap').style.display = e.target.checked ? 'none' : '';
+  };
+  document.getElementById('confirmCompleteBtn').onclick = async ()=>{
+    const cleared = document.getElementById('f_cleared').checked;
+    t.status='Completed';
+    t.completedAt = nowLocalInput();
+    t.completedBy = currentStaffName || t.agent || '';
+    t.processingHrs = computeTaskDuration(t.startedAt || t.completedAt, t.completedAt);
+    t.feedbackNote = document.getElementById('f_feedback').value;
+    t.queueCleared = cleared;
+    t.carryOverAmount = cleared ? 0 : (parseFloat(document.getElementById('f_carryover').value)||0);
+    await saveOne('dailyTasks');
+    closeModal();
+    renderWeekGrid(); renderDailyTasks();
+    toast('Marked complete');
+  };
+}
+window.openStaffCompletePrompt = openStaffCompletePrompt;
 
 async function staffCycleStatus(id){
   const t = DB.dailyTasks.find(x=>x.id===id); if(!t) return;
@@ -1583,13 +1683,9 @@ async function staffCycleStatus(id){
     return;
   }
   if(t.status==='Not Started'){
-    if(!t.agent) t.agent = currentStaffName;
-    t.status='In Progress'; t.startedAt = nowLocalInput(); t.startedBy = currentStaffName;
-    await saveOne('dailyTasks'); renderWeekGrid(); toast('Task started');
+    openStartPrompt(id, currentStaffName);
   } else if(t.status==='In Progress'){
-    t.status='Completed'; t.completedAt = nowLocalInput(); t.completedBy = currentStaffName;
-    t.processingHrs = computeTaskDuration(t.startedAt || t.completedAt, t.completedAt);
-    await saveOne('dailyTasks'); renderWeekGrid(); toast('Marked complete');
+    openStaffCompletePrompt(id);
   } else {
     toast('Already done — ask your manager to change it');
   }
@@ -1615,7 +1711,7 @@ async function generateWeekChecklist(){
       ['AM','PM'].forEach(shift=>{
         const exists = DB.dailyTasks.some(t=>t.date===date && t.task===tt.name && t.shift===shift);
         if(!exists){
-          DB.dailyTasks.push({id:uid(), date, task:tt.name, shift, agent:'', status:'Not Started', startedBy:'', startedAt:'', completedBy:'', completedAt:'', processingHrs:'', bestRx:'', portal:'', notes:''});
+          DB.dailyTasks.push({id:uid(), date, task:tt.name, shift, agent:'', status:'Not Started', startedBy:'', startedAt:'', completedBy:'', completedAt:'', processingHrs:'', bestRx:'', portal:'', notes:'', startPortalPages:'', startBestRxQueue:'', startVolume:'', feedbackNote:'', queueCleared:null, carryOverAmount:''});
           added++;
         }
       });
@@ -1658,6 +1754,7 @@ overlay.addEventListener('click', e=>{ if(e.target===overlay) closeModal(); });
 
 function openCompleteModal(id){
   const t = DB.dailyTasks.find(x=>x.id===id); if(!t) return;
+  const cleared = t.queueCleared!==false;
   modalBody.innerHTML = `
     <h3>Complete: ${t.task} (${t.shift})</h3>
     <div class="form-grid">
@@ -1665,20 +1762,35 @@ function openCompleteModal(id){
       <div class="field"><label>Completed at</label><input type="datetime-local" id="f_completedAt" value="${nowLocalInput()}"></div>
       <div class="field"><label>Amount completed (BestRx)</label><input type="text" id="f_bestrx" value="${t.bestRx||''}" placeholder="manual entry"></div>
       <div class="field"><label>Amount completed (Portal)</label><input type="text" id="f_portal" value="${t.portal||''}" placeholder="manual entry"></div>
-      <div class="field full"><label>Notes</label><textarea id="f_notes" rows="2">${t.notes||''}</textarea></div>
+      <div class="field full"><label>Feedback / Notes</label><textarea id="f_notes" rows="2">${t.feedbackNote||t.notes||''}</textarea></div>
+      <div class="field full" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="f_cleared" ${cleared?'checked':''} style="width:auto;">
+        <label style="margin:0;">Cleared the queue completely</label>
+      </div>
+      <div class="field full" id="carryoverWrap" style="display:${cleared?'none':''};">
+        <label>How much is left (carryover)?</label>
+        <input type="number" id="f_carryover" min="0" value="${t.carryOverAmount||''}">
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" id="saveCompleteBtn">Mark completed</button>
     </div>`;
   overlay.classList.add('active');
+  document.getElementById('f_cleared').onchange = (e)=>{
+    document.getElementById('carryoverWrap').style.display = e.target.checked ? 'none' : '';
+  };
   document.getElementById('saveCompleteBtn').onclick = async ()=>{
+    const isCleared = document.getElementById('f_cleared').checked;
     t.completedBy = document.getElementById('f_completedBy').value || t.agent;
     t.completedAt = document.getElementById('f_completedAt').value;
     if(!t.startedAt) t.startedAt = t.completedAt;
     t.bestRx = document.getElementById('f_bestrx').value;
     t.portal = document.getElementById('f_portal').value;
-    t.notes = document.getElementById('f_notes').value;
+    t.feedbackNote = document.getElementById('f_notes').value;
+    t.notes = t.feedbackNote;
+    t.queueCleared = isCleared;
+    t.carryOverAmount = isCleared ? 0 : (parseFloat(document.getElementById('f_carryover').value)||0);
     t.processingHrs = computeTaskDuration(t.startedAt, t.completedAt);
     t.status = 'Completed';
     await saveOne('dailyTasks');
@@ -1725,7 +1837,7 @@ function openTaskEntryModal(existing, prefill){
       portal: document.getElementById('f_portal').value,
       notes: document.getElementById('f_notes').value
     };
-    if(existing){ DB.dailyTasks = DB.dailyTasks.map(x=>x.id===rec.id?rec:x); } else { DB.dailyTasks.push(rec); }
+    if(existing){ DB.dailyTasks = DB.dailyTasks.map(x=>x.id===rec.id?{...x, ...rec}:x); } else { DB.dailyTasks.push({startPortalPages:'', startBestRxQueue:'', startVolume:'', feedbackNote:'', queueCleared:null, carryOverAmount:'', ...rec}); }
     await saveOne('dailyTasks'); closeModal(); renderDailyTasks(); renderWeekGrid(); renderDashboard(); refreshAgentSuggestions(); toast('Task entry saved');
   };
 }
@@ -1734,6 +1846,7 @@ window.openTaskEntryModal = openTaskEntryModal;
 function openManageTasksModal(){
   modalBody.innerHTML = `
     <h3>Manage task list</h3>
+    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-6px 0 12px;">Use ▲ / ▼ to reorder — this is the order tasks appear in the weekly grid.</p>
     <div id="templateList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:280px;overflow-y:auto;"></div>
     <div class="form-grid"><div class="field full"><label>New task name</label><input type="text" id="f_newTask" placeholder="e.g. New Bot Queue Review"></div></div>
     <div class="modal-actions" style="justify-content:space-between;">
@@ -1748,10 +1861,14 @@ function openManageTasksModal(){
       document.getElementById('templateList').innerHTML = `<div class="empty" style="padding:16px;">No tasks in the list.</div>`;
       return;
     }
-    document.getElementById('templateList').innerHTML = DB.taskTemplates.map(tt=>`
+    document.getElementById('templateList').innerHTML = DB.taskTemplates.map((tt,i)=>`
       <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--beige);border-radius:8px;">
         <span style="font-size:12.5px;">${tt.name}</span>
-        <button class="icon-btn" onclick="removeTemplate('${tt.id}')" title="Remove">✕</button>
+        <div style="display:flex;gap:2px;">
+          <button class="icon-btn" onclick="moveTemplate('${tt.id}',-1)" title="Move up" ${i===0?'disabled style="opacity:0.3;"':''}>▲</button>
+          <button class="icon-btn" onclick="moveTemplate('${tt.id}',1)" title="Move down" ${i===DB.taskTemplates.length-1?'disabled style="opacity:0.3;"':''}>▼</button>
+          <button class="icon-btn" onclick="removeTemplate('${tt.id}')" title="Remove">✕</button>
+        </div>
       </div>`).join('');
   };
   renderList();
@@ -1780,6 +1897,18 @@ async function removeTemplate(id){
   toast('Task removed');
 }
 window.removeTemplate = removeTemplate;
+
+async function moveTemplate(id, direction){
+  const idx = DB.taskTemplates.findIndex(t=>t.id===id);
+  const newIdx = idx + direction;
+  if(idx<0 || newIdx<0 || newIdx>=DB.taskTemplates.length) return;
+  const arr = DB.taskTemplates;
+  [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
+  await saveOne('taskTemplates');
+  if(window._renderTemplateList) window._renderTemplateList();
+  renderWeekGrid();
+}
+window.moveTemplate = moveTemplate;
 
 /* ---------------- job aids ---------------- */
 function renderJobAids(){
@@ -1847,6 +1976,128 @@ async function deleteJobAid(id){
 window.deleteJobAid = deleteJobAid;
 document.getElementById('jobAidTaskFilter').onchange = renderJobAids;
 document.getElementById('addJobAidBtn').onclick = ()=>openJobAidModal(null);
+
+/* ---------------- tickets (Slack thread tracking) ---------------- */
+function nextTicketNumber(){
+  const n = (DB.settings.nextTicketNumber || 1);
+  return { display: 'QA-'+n, next: n+1 };
+}
+const TICKET_STATUSES = ['Open','In Progress','Rejected - Non-Bot Issue','Backlog','Completed'];
+function ticketStatusClass(s){
+  if(s==='Completed') return 'b-ok';
+  if(s==='Rejected - Non-Bot Issue') return 'b-spike';
+  if(s==='In Progress') return 'st-inprogress';
+  if(s==='Backlog') return 'b-na';
+  return 'st-notstarted';
+}
+function renderTickets(){
+  const statusF = document.getElementById('ticketStatusFilter').value;
+  const rows = [...DB.tickets].filter(t=>!statusF || t.status===statusF).sort((a,b)=>b.number-a.number);
+  const body = document.getElementById('ticketsBody');
+  if(rows.length===0){ body.innerHTML = `<tr><td colspan="7"><div class="empty">No tickets created yet.</div></td></tr>`; return; }
+  body.innerHTML = rows.map(t=>`
+    <tr>
+      <td><b>QA-${t.number}</b></td>
+      <td>${fmtDate(t.date)}</td>
+      <td>${t.createdBy||'—'}</td>
+      <td style="max-width:220px;white-space:normal;">${t.description||'—'}</td>
+      <td><span class="badge ${ticketStatusClass(t.status)}">${t.status}</span></td>
+      <td style="max-width:260px;white-space:normal;font-size:11.5px;">${t.contextNotes||'—'}</td>
+      <td style="white-space:nowrap;">
+        <button class="icon-btn" title="Copy ticket number" onclick="copyTicketNumber(${t.number})">📋</button>
+        <button class="icon-btn manager-only" title="Edit / update status" onclick="openTicketEditModal('${t.id}')">✎</button>
+        <button class="icon-btn manager-only" title="Delete" onclick="deleteTicket('${t.id}')">✕</button>
+      </td>
+    </tr>`).join('');
+}
+function copyTicketNumber(n){
+  const text = 'QA-'+n;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>toast(`Copied ${text}`)).catch(()=>toast(text+' — copy manually'));
+  } else {
+    toast(text+' — copy manually');
+  }
+}
+window.copyTicketNumber = copyTicketNumber;
+
+function openCreateTicketModal(){
+  modalBody.innerHTML = `
+    <h3>Create ticket</h3>
+    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-4px 0 12px;">A short description helps everyone remember what this was about later — optional but recommended.</p>
+    <div class="form-grid">
+      <div class="field full"><label>Your name</label><input type="text" id="f_ticketBy" value="${escAttr(currentStaffName||'')}" list="agentSuggestions"></div>
+      <div class="field full"><label>Description (optional)</label><textarea id="f_ticketDesc" rows="2" placeholder="e.g. Duplicate thread about Zepbound rejections"></textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="confirmCreateTicketBtn">Generate ticket number</button>
+    </div>`;
+  overlay.classList.add('active');
+  document.getElementById('confirmCreateTicketBtn').onclick = async ()=>{
+    const { display, next } = nextTicketNumber();
+    const number = parseInt(display.split('-')[1]);
+    const rec = {
+      id: uid(), number, date: todayStr(),
+      createdBy: document.getElementById('f_ticketBy').value.trim(),
+      description: document.getElementById('f_ticketDesc').value.trim(),
+      status: 'Open', contextNotes: ''
+    };
+    DB.tickets.push(rec);
+    DB.settings.nextTicketNumber = next;
+    await saveOne('tickets');
+    await saveOne('settings');
+    showTicketNumberResult(display);
+  };
+}
+function showTicketNumberResult(display){
+  modalBody.innerHTML = `
+    <h3>Ticket created</h3>
+    <div style="text-align:center;padding:24px 10px;">
+      <div style="font-family:'Funnel Display';font-size:42px;font-weight:800;color:var(--purple);">${display}</div>
+      <p style="font-size:12.5px;color:rgba(46,3,38,0.6);margin-top:8px;">Paste this at the very start of the Slack thread so it's easy to track.</p>
+      <button class="btn btn-primary" style="margin-top:12px;" onclick="copyTicketNumber(${display.split('-')[1]})">📋 Copy ${display}</button>
+    </div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Done</button></div>`;
+  renderTickets();
+}
+window.openCreateTicketModal = openCreateTicketModal;
+document.getElementById('createTicketBtn').onclick = ()=>openCreateTicketModal();
+document.getElementById('ticketStatusFilter').onchange = renderTickets;
+
+function openTicketEditModal(id){
+  const t = DB.tickets.find(x=>x.id===id); if(!t) return;
+  modalBody.innerHTML = `
+    <h3>QA-${t.number}</h3>
+    <div class="form-grid">
+      <div class="field full"><label>Description</label><textarea id="f_ticketDescEdit" rows="2">${t.description||''}</textarea></div>
+      <div class="field full"><label>Status</label><select id="f_ticketStatus">${TICKET_STATUSES.map(s=>`<option ${t.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="field full"><label>Context / notes</label><textarea id="f_ticketNotes" rows="4" placeholder="Add context, what bot/queue this affects, resolution details, etc.">${t.contextNotes||''}</textarea></div>
+    </div>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn btn-ghost" id="deleteTicketInModalBtn" style="color:#B3204D;border-color:rgba(179,32,77,0.25);">Delete ticket</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" id="saveTicketBtn">Save</button>
+      </div>
+    </div>`;
+  overlay.classList.add('active');
+  document.getElementById('deleteTicketInModalBtn').onclick = async ()=>{ closeModal(); await deleteTicket(id); };
+  document.getElementById('saveTicketBtn').onclick = async ()=>{
+    t.description = document.getElementById('f_ticketDescEdit').value;
+    t.status = document.getElementById('f_ticketStatus').value;
+    t.contextNotes = document.getElementById('f_ticketNotes').value;
+    await saveOne('tickets');
+    closeModal(); renderTickets(); toast('Ticket updated');
+  };
+}
+window.openTicketEditModal = openTicketEditModal;
+async function deleteTicket(id){
+  if(!confirm('Delete this ticket? This does not affect anything already posted in Slack.')) return;
+  DB.tickets = DB.tickets.filter(t=>t.id!==id);
+  await saveOne('tickets'); renderTickets(); toast('Ticket deleted');
+}
+window.deleteTicket = deleteTicket;
+
 
 /* ---------------- staff roster ---------------- */
 function openManageStaffModal(){
@@ -1964,7 +2215,7 @@ async function generateTodaysChecklist(){
     ['AM','PM'].forEach(shift=>{
       const exists = DB.dailyTasks.some(t=>t.date===date && t.task===tt.name && t.shift===shift);
       if(!exists){
-        DB.dailyTasks.push({id:uid(), date, task:tt.name, shift, agent:'', status:'Not Started', startedBy:'', startedAt:'', completedBy:'', completedAt:'', processingHrs:'', bestRx:'', portal:'', notes:''});
+        DB.dailyTasks.push({id:uid(), date, task:tt.name, shift, agent:'', status:'Not Started', startedBy:'', startedAt:'', completedBy:'', completedAt:'', processingHrs:'', bestRx:'', portal:'', notes:'', startPortalPages:'', startBestRxQueue:'', startVolume:'', feedbackNote:'', queueCleared:null, carryOverAmount:''});
         added++;
       }
     });
@@ -2555,7 +2806,7 @@ document.getElementById('resetBtn').onclick = async ()=>{
   DB.attendance = [];
   DB.coachingNotes = [];
   await saveAll();
-  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); refreshAgentSuggestions();
+  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets(); refreshAgentSuggestions();
   toast('Test data cleared');
 };
 
@@ -2581,6 +2832,7 @@ document.getElementById('resetBtn').onclick = async ()=>{
     renderAttendance();
     renderTeam();
     renderJobAids();
+    renderTickets();
   }catch(e){
     console.error(e);
     document.getElementById('content').innerHTML = '<div class="empty">Could not load data. Please refresh.</div>';
