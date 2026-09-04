@@ -2006,7 +2006,7 @@ function renderTickets(){
     }
     return `
     <tr>
-      <td><b>QA-${t.number}</b></td>
+      <td><b>QA-${t.number}</b>${(t.relatedTickets&&t.relatedTickets.length) ? '<br>'+t.relatedTickets.map(n=>`<span class="badge b-na" style="cursor:pointer;margin-top:3px;display:inline-block;" onclick="jumpToTicketByNumber(${JSON.stringify(n)})" title="Jump to QA-${n}">↔ QA-${n}</span>`).join(' ') : ''}</td>
       <td>${fmtDate(t.date)}</td>
       <td>${t.createdBy||'—'}</td>
       <td style="max-width:200px;white-space:normal;">${t.description||'—'}</td>
@@ -2078,7 +2078,7 @@ function openCreateTicketModal(){
       id: uid(), number, date: todayStr(),
       createdBy: document.getElementById('f_ticketBy').value.trim(),
       description: document.getElementById('f_ticketDesc').value.trim(),
-      status: 'Open', contextNotes: '', link: '', notesLog: []
+      status: 'Open', contextNotes: '', link: '', notesLog: [], relatedTickets: []
     };
     DB.tickets.push(rec);
     if(!usingExisting){ DB.settings.nextTicketNumber = number+1; await saveOne('settings'); }
@@ -2104,11 +2104,24 @@ document.getElementById('ticketStatusFilter').onchange = renderTickets;
 
 function openTicketEditModal(id){
   const t = DB.tickets.find(x=>x.id===id); if(!t) return;
+  if(!t.relatedTickets) t.relatedTickets = [];
+  const otherTickets = DB.tickets.filter(x=>x.id!==id);
   modalBody.innerHTML = `
     <h3>Edit QA-${t.number}</h3>
     <div class="form-grid">
       <div class="field full"><label>Description</label><textarea id="f_ticketDescEdit" rows="2">${t.description||''}</textarea></div>
       <div class="field full"><label>Slack thread link</label><input type="text" id="f_ticketLink" value="${escAttr(t.link||'')}" placeholder="https://yourteam.slack.com/archives/..."></div>
+      <div class="field full">
+        <label>Related / duplicate tickets</label>
+        <div id="relatedChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
+        <div style="display:flex;gap:6px;">
+          <select id="f_relatedPicker" style="flex:1;">
+            <option value="">Choose a ticket to link…</option>
+            ${otherTickets.map(x=>`<option value="${x.number}">QA-${x.number}${x.description?' — '+x.description.slice(0,40):''}</option>`).join('')}
+          </select>
+          <button class="btn btn-ghost btn-sm" id="addRelatedBtn" type="button">+ Link</button>
+        </div>
+      </div>
     </div>
     <p style="font-size:11.5px;color:rgba(46,3,38,0.5);margin:8px 0 0;">To change status or add a note, use the 💬 update button instead — this keeps a timestamped history.</p>
     <div class="modal-actions" style="justify-content:space-between;">
@@ -2119,6 +2132,26 @@ function openTicketEditModal(id){
       </div>
     </div>`;
   overlay.classList.add('active');
+  const renderChips = ()=>{
+    const wrap = document.getElementById('relatedChips');
+    if(t.relatedTickets.length===0){ wrap.innerHTML = `<span style="font-size:11.5px;color:rgba(46,3,38,0.45);">No linked tickets yet.</span>`; return; }
+    wrap.innerHTML = t.relatedTickets.map(n=>`
+      <span class="badge b-na" style="display:inline-flex;align-items:center;gap:5px;">
+        ↔ QA-${n}
+        <button type="button" onclick="removeRelatedTicket('${id}', ${JSON.stringify(n)})" style="background:none;border:none;cursor:pointer;font-weight:800;color:#B3204D;line-height:1;padding:0;">×</button>
+      </span>`).join('');
+  };
+  renderChips();
+  window._renderRelatedChips = renderChips;
+  document.getElementById('addRelatedBtn').onclick = async ()=>{
+    const val = document.getElementById('f_relatedPicker').value;
+    if(!val) return;
+    const num = otherTickets.find(x=>String(x.number)===val)?.number ?? val;
+    if(!t.relatedTickets.some(n=>String(n)===String(num))) t.relatedTickets.push(num);
+    await saveOne('tickets');
+    renderChips();
+    document.getElementById('f_relatedPicker').value = '';
+  };
   document.getElementById('deleteTicketInModalBtn').onclick = async ()=>{ closeModal(); await deleteTicket(id); };
   document.getElementById('saveTicketBtn').onclick = async ()=>{
     t.description = document.getElementById('f_ticketDescEdit').value;
@@ -2130,6 +2163,24 @@ function openTicketEditModal(id){
   };
 }
 window.openTicketEditModal = openTicketEditModal;
+
+async function removeRelatedTicket(id, num){
+  const t = DB.tickets.find(x=>x.id===id); if(!t) return;
+  t.relatedTickets = (t.relatedTickets||[]).filter(n=>String(n)!==String(num));
+  await saveOne('tickets');
+  if(window._renderRelatedChips) window._renderRelatedChips();
+}
+window.removeRelatedTicket = removeRelatedTicket;
+
+function jumpToTicketByNumber(num){
+  const t = DB.tickets.find(x=>String(x.number)===String(num));
+  if(!t){ toast(`QA-${num} not found`); return; }
+  document.getElementById('ticketStatusFilter').value = '';
+  renderTickets();
+  if(appMode==='manager') openTicketEditModal(t.id);
+  else toast(`QA-${num}: ${t.description||'no description'} · ${t.status}`);
+}
+window.jumpToTicketByNumber = jumpToTicketByNumber;
 
 function openTicketUpdateModal(id){
   const t = DB.tickets.find(x=>x.id===id); if(!t) return;
