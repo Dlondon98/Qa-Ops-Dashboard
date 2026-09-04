@@ -1995,21 +1995,32 @@ function renderTickets(){
   const rows = [...DB.tickets].filter(t=>!statusF || t.status===statusF).sort((a,b)=>String(b.number).localeCompare(String(a.number), undefined, {numeric:true}));
   const body = document.getElementById('ticketsBody');
   if(rows.length===0){ body.innerHTML = `<tr><td colspan="8"><div class="empty">No tickets created yet.</div></td></tr>`; return; }
-  body.innerHTML = rows.map(t=>`
+  body.innerHTML = rows.map(t=>{
+    const log = t.notesLog || [];
+    let notesCell = '—';
+    if(log.length>0){
+      const latest = log[log.length-1];
+      notesCell = `<div><span style="color:rgba(46,3,38,0.45);">${fmtDT(latest.ts)}</span> — ${latest.text}</div>` + (log.length>1 ? `<div style="color:rgba(46,3,38,0.45);margin-top:2px;">(+${log.length-1} more update${log.length-1>1?'s':''})</div>` : '');
+    } else if(t.contextNotes) {
+      notesCell = t.contextNotes; // backward-compat for tickets edited before this feature
+    }
+    return `
     <tr>
       <td><b>QA-${t.number}</b></td>
       <td>${fmtDate(t.date)}</td>
       <td>${t.createdBy||'—'}</td>
-      <td style="max-width:220px;white-space:normal;">${t.description||'—'}</td>
+      <td style="max-width:200px;white-space:normal;">${t.description||'—'}</td>
       <td><span class="badge ${ticketStatusClass(t.status)}">${t.status}</span></td>
-      <td style="max-width:260px;white-space:normal;font-size:11.5px;">${t.contextNotes||'—'}</td>
+      <td style="max-width:240px;white-space:normal;font-size:11.5px;">${notesCell}</td>
       <td>${t.link ? `<a href="${escAttr(t.link)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Open ↗</a>` : '—'}</td>
       <td style="white-space:nowrap;">
         <button class="icon-btn" title="Copy ticket number" onclick="copyTicketNumber(${JSON.stringify(t.number)})">📋</button>
-        <button class="icon-btn manager-only" title="Edit / update status" onclick="openTicketEditModal('${t.id}')">✎</button>
+        <button class="icon-btn manager-only" title="Add update" onclick="openTicketUpdateModal('${t.id}')">💬</button>
+        <button class="icon-btn manager-only" title="Edit details" onclick="openTicketEditModal('${t.id}')">✎</button>
         <button class="icon-btn manager-only" title="Delete" onclick="deleteTicket('${t.id}')">✕</button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 function copyTicketNumber(n){
   const text = 'QA-'+n;
@@ -2022,11 +2033,12 @@ function copyTicketNumber(n){
 window.copyTicketNumber = copyTicketNumber;
 
 function openCreateTicketModal(){
+  if(appMode==='staff' && !currentStaffName){ openIdentityModal(); return; }
   modalBody.innerHTML = `
     <h3>Create ticket</h3>
     <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-4px 0 12px;">A short description helps everyone remember what this was about later — optional but recommended.</p>
     <div class="form-grid">
-      <div class="field full"><label>Your name</label><input type="text" id="f_ticketBy" value="${escAttr(currentStaffName||'')}" list="agentSuggestions"></div>
+      <div class="field full"><label>Your name</label><input type="text" id="f_ticketBy" value="${escAttr(currentStaffName||'')}" list="agentSuggestions" ${appMode==='staff'?'readonly style="background:var(--beige);"':''}></div>
       <div class="field full" style="display:flex;align-items:center;gap:8px;">
         <input type="checkbox" id="f_hasNumber" style="width:auto;">
         <label style="margin:0;">I already have a ticket number</label>
@@ -2066,7 +2078,7 @@ function openCreateTicketModal(){
       id: uid(), number, date: todayStr(),
       createdBy: document.getElementById('f_ticketBy').value.trim(),
       description: document.getElementById('f_ticketDesc').value.trim(),
-      status: 'Open', contextNotes: '', link: ''
+      status: 'Open', contextNotes: '', link: '', notesLog: []
     };
     DB.tickets.push(rec);
     if(!usingExisting){ DB.settings.nextTicketNumber = number+1; await saveOne('settings'); }
@@ -2093,13 +2105,12 @@ document.getElementById('ticketStatusFilter').onchange = renderTickets;
 function openTicketEditModal(id){
   const t = DB.tickets.find(x=>x.id===id); if(!t) return;
   modalBody.innerHTML = `
-    <h3>QA-${t.number}</h3>
+    <h3>Edit QA-${t.number}</h3>
     <div class="form-grid">
       <div class="field full"><label>Description</label><textarea id="f_ticketDescEdit" rows="2">${t.description||''}</textarea></div>
       <div class="field full"><label>Slack thread link</label><input type="text" id="f_ticketLink" value="${escAttr(t.link||'')}" placeholder="https://yourteam.slack.com/archives/..."></div>
-      <div class="field full"><label>Status</label><select id="f_ticketStatus">${TICKET_STATUSES.map(s=>`<option ${t.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
-      <div class="field full"><label>Context / notes</label><textarea id="f_ticketNotes" rows="4" placeholder="Add context, what bot/queue this affects, resolution details, etc.">${t.contextNotes||''}</textarea></div>
     </div>
+    <p style="font-size:11.5px;color:rgba(46,3,38,0.5);margin:8px 0 0;">To change status or add a note, use the 💬 update button instead — this keeps a timestamped history.</p>
     <div class="modal-actions" style="justify-content:space-between;">
       <button class="btn btn-ghost" id="deleteTicketInModalBtn" style="color:#B3204D;border-color:rgba(179,32,77,0.25);">Delete ticket</button>
       <div style="display:flex;gap:8px;">
@@ -2114,13 +2125,49 @@ function openTicketEditModal(id){
     let link = document.getElementById('f_ticketLink').value.trim();
     if(link && !/^https?:\/\//i.test(link)) link = 'https://'+link;
     t.link = link;
-    t.status = document.getElementById('f_ticketStatus').value;
-    t.contextNotes = document.getElementById('f_ticketNotes').value;
     await saveOne('tickets');
     closeModal(); renderTickets(); toast('Ticket updated');
   };
 }
 window.openTicketEditModal = openTicketEditModal;
+
+function openTicketUpdateModal(id){
+  const t = DB.tickets.find(x=>x.id===id); if(!t) return;
+  const log = t.notesLog || [];
+  const history = log.length===0 ? `<div class="empty" style="padding:14px;">No updates logged yet.</div>` : [...log].reverse().map(entry=>`
+    <div style="padding:8px 10px;background:var(--beige);border-radius:8px;margin-bottom:6px;">
+      <div style="font-size:11px;color:rgba(46,3,38,0.5);display:flex;justify-content:space-between;">
+        <span>${fmtDT(entry.ts)}${entry.author?' · '+entry.author:''}</span>
+        <span class="badge ${ticketStatusClass(entry.status)}" style="font-size:9px;">${entry.status}</span>
+      </div>
+      <div style="font-size:12.5px;margin-top:3px;">${entry.text}</div>
+    </div>`).join('');
+  modalBody.innerHTML = `
+    <h3>Update QA-${t.number}</h3>
+    <div style="max-height:220px;overflow-y:auto;margin-bottom:14px;">${history}</div>
+    <div class="form-grid" style="border-top:1px dashed var(--line);padding-top:12px;">
+      <div class="field full"><label>Status</label><select id="f_updateStatus">${TICKET_STATUSES.map(s=>`<option ${t.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="field full"><label>Note</label><textarea id="f_updateNote" rows="3" placeholder="What's the update? e.g. Confirmed with engineering, waiting on bot fix..."></textarea></div>
+      <div class="field full"><label>Your name</label><input type="text" id="f_updateBy" value="${escAttr(currentStaffName||'')}" list="agentSuggestions"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+      <button class="btn btn-primary" id="saveUpdateBtn">Add update</button>
+    </div>`;
+  overlay.classList.add('active');
+  document.getElementById('saveUpdateBtn').onclick = async ()=>{
+    const text = document.getElementById('f_updateNote').value.trim();
+    const status = document.getElementById('f_updateStatus').value;
+    if(!text){ toast('Enter a note before adding an update'); return; }
+    if(!t.notesLog) t.notesLog = [];
+    t.notesLog.push({ ts: nowLocalInput(), author: document.getElementById('f_updateBy').value.trim(), text, status });
+    t.status = status;
+    await saveOne('tickets');
+    closeModal(); renderTickets(); toast('Update added');
+  };
+}
+window.openTicketUpdateModal = openTicketUpdateModal;
+
 async function deleteTicket(id){
   if(!confirm('Delete this ticket? This does not affect anything already posted in Slack.')) return;
   DB.tickets = DB.tickets.filter(t=>t.id!==id);
