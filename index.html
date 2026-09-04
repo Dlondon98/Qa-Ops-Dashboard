@@ -443,7 +443,7 @@
         <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-10px 0 16px;">Spotted a duplicate or confusing thread in Slack? Create a ticket here, then paste the number at the very start of that Slack thread so it's easy to track.</p>
         <div class="table-wrap"><div class="table-scroll">
           <table>
-            <thead><tr><th>Ticket #</th><th>Created</th><th>Created by</th><th>Description</th><th>Status</th><th>Context / notes</th><th></th></tr></thead>
+            <thead><tr><th>Ticket #</th><th>Created</th><th>Created by</th><th>Description</th><th>Status</th><th>Context / notes</th><th>Slack</th><th></th></tr></thead>
             <tbody id="ticketsBody"></tbody>
           </table>
         </div></div>
@@ -1992,9 +1992,9 @@ function ticketStatusClass(s){
 }
 function renderTickets(){
   const statusF = document.getElementById('ticketStatusFilter').value;
-  const rows = [...DB.tickets].filter(t=>!statusF || t.status===statusF).sort((a,b)=>b.number-a.number);
+  const rows = [...DB.tickets].filter(t=>!statusF || t.status===statusF).sort((a,b)=>String(b.number).localeCompare(String(a.number), undefined, {numeric:true}));
   const body = document.getElementById('ticketsBody');
-  if(rows.length===0){ body.innerHTML = `<tr><td colspan="7"><div class="empty">No tickets created yet.</div></td></tr>`; return; }
+  if(rows.length===0){ body.innerHTML = `<tr><td colspan="8"><div class="empty">No tickets created yet.</div></td></tr>`; return; }
   body.innerHTML = rows.map(t=>`
     <tr>
       <td><b>QA-${t.number}</b></td>
@@ -2003,8 +2003,9 @@ function renderTickets(){
       <td style="max-width:220px;white-space:normal;">${t.description||'—'}</td>
       <td><span class="badge ${ticketStatusClass(t.status)}">${t.status}</span></td>
       <td style="max-width:260px;white-space:normal;font-size:11.5px;">${t.contextNotes||'—'}</td>
+      <td>${t.link ? `<a href="${escAttr(t.link)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Open ↗</a>` : '—'}</td>
       <td style="white-space:nowrap;">
-        <button class="icon-btn" title="Copy ticket number" onclick="copyTicketNumber(${t.number})">📋</button>
+        <button class="icon-btn" title="Copy ticket number" onclick="copyTicketNumber(${JSON.stringify(t.number)})">📋</button>
         <button class="icon-btn manager-only" title="Edit / update status" onclick="openTicketEditModal('${t.id}')">✎</button>
         <button class="icon-btn manager-only" title="Delete" onclick="deleteTicket('${t.id}')">✕</button>
       </td>
@@ -2026,6 +2027,14 @@ function openCreateTicketModal(){
     <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-4px 0 12px;">A short description helps everyone remember what this was about later — optional but recommended.</p>
     <div class="form-grid">
       <div class="field full"><label>Your name</label><input type="text" id="f_ticketBy" value="${escAttr(currentStaffName||'')}" list="agentSuggestions"></div>
+      <div class="field full" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="f_hasNumber" style="width:auto;">
+        <label style="margin:0;">I already have a ticket number</label>
+      </div>
+      <div class="field full" id="existingNumberWrap" style="display:none;">
+        <label>Existing ticket number</label>
+        <input type="text" id="f_existingNumber" placeholder="e.g. QA-42 or just 42">
+      </div>
       <div class="field full"><label>Description (optional)</label><textarea id="f_ticketDesc" rows="2" placeholder="e.g. Duplicate thread about Zepbound rejections"></textarea></div>
     </div>
     <div class="modal-actions">
@@ -2033,29 +2042,46 @@ function openCreateTicketModal(){
       <button class="btn btn-primary" id="confirmCreateTicketBtn">Generate ticket number</button>
     </div>`;
   overlay.classList.add('active');
+  document.getElementById('f_hasNumber').onchange = (e)=>{
+    document.getElementById('existingNumberWrap').style.display = e.target.checked ? '' : 'none';
+    document.getElementById('confirmCreateTicketBtn').textContent = e.target.checked ? 'Save ticket' : 'Generate ticket number';
+  };
   document.getElementById('confirmCreateTicketBtn').onclick = async ()=>{
-    const { display, next } = nextTicketNumber();
-    const number = parseInt(display.split('-')[1]);
+    const usingExisting = document.getElementById('f_hasNumber').checked;
+    let display, number;
+    if(usingExisting){
+      let raw = document.getElementById('f_existingNumber').value.trim();
+      if(!raw){ toast('Enter the existing ticket number'); return; }
+      raw = raw.replace(/^QA-?/i,'').trim();
+      number = raw;
+      display = 'QA-'+number;
+      if(DB.tickets.some(t=>String(t.number).toLowerCase()===String(number).toLowerCase())){
+        if(!confirm(`${display} already exists in this list. Save another entry with the same number anyway?`)) return;
+      }
+    } else {
+      const gen = nextTicketNumber();
+      display = gen.display; number = parseInt(gen.display.split('-')[1]);
+    }
     const rec = {
       id: uid(), number, date: todayStr(),
       createdBy: document.getElementById('f_ticketBy').value.trim(),
       description: document.getElementById('f_ticketDesc').value.trim(),
-      status: 'Open', contextNotes: ''
+      status: 'Open', contextNotes: '', link: ''
     };
     DB.tickets.push(rec);
-    DB.settings.nextTicketNumber = next;
+    if(!usingExisting){ DB.settings.nextTicketNumber = number+1; await saveOne('settings'); }
     await saveOne('tickets');
-    await saveOne('settings');
-    showTicketNumberResult(display);
+    showTicketNumberResult(display, usingExisting);
   };
 }
-function showTicketNumberResult(display){
+function showTicketNumberResult(display, usingExisting){
+  const numPart = display.replace(/^QA-/,'');
   modalBody.innerHTML = `
-    <h3>Ticket created</h3>
+    <h3>${usingExisting ? 'Ticket saved' : 'Ticket created'}</h3>
     <div style="text-align:center;padding:24px 10px;">
       <div style="font-family:'Funnel Display';font-size:42px;font-weight:800;color:var(--purple);">${display}</div>
-      <p style="font-size:12.5px;color:rgba(46,3,38,0.6);margin-top:8px;">Paste this at the very start of the Slack thread so it's easy to track.</p>
-      <button class="btn btn-primary" style="margin-top:12px;" onclick="copyTicketNumber(${display.split('-')[1]})">📋 Copy ${display}</button>
+      <p style="font-size:12.5px;color:rgba(46,3,38,0.6);margin-top:8px;">${usingExisting ? 'Saved to your tracked list.' : "Paste this at the very start of the Slack thread so it's easy to track."}</p>
+      <button class="btn btn-primary" style="margin-top:12px;" onclick="copyTicketNumber(${JSON.stringify(numPart)})">📋 Copy ${display}</button>
     </div>
     <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Done</button></div>`;
   renderTickets();
@@ -2070,6 +2096,7 @@ function openTicketEditModal(id){
     <h3>QA-${t.number}</h3>
     <div class="form-grid">
       <div class="field full"><label>Description</label><textarea id="f_ticketDescEdit" rows="2">${t.description||''}</textarea></div>
+      <div class="field full"><label>Slack thread link</label><input type="text" id="f_ticketLink" value="${escAttr(t.link||'')}" placeholder="https://yourteam.slack.com/archives/..."></div>
       <div class="field full"><label>Status</label><select id="f_ticketStatus">${TICKET_STATUSES.map(s=>`<option ${t.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
       <div class="field full"><label>Context / notes</label><textarea id="f_ticketNotes" rows="4" placeholder="Add context, what bot/queue this affects, resolution details, etc.">${t.contextNotes||''}</textarea></div>
     </div>
@@ -2084,6 +2111,9 @@ function openTicketEditModal(id){
   document.getElementById('deleteTicketInModalBtn').onclick = async ()=>{ closeModal(); await deleteTicket(id); };
   document.getElementById('saveTicketBtn').onclick = async ()=>{
     t.description = document.getElementById('f_ticketDescEdit').value;
+    let link = document.getElementById('f_ticketLink').value.trim();
+    if(link && !/^https?:\/\//i.test(link)) link = 'https://'+link;
+    t.link = link;
     t.status = document.getElementById('f_ticketStatus').value;
     t.contextNotes = document.getElementById('f_ticketNotes').value;
     await saveOne('tickets');
