@@ -1846,7 +1846,7 @@ window.openTaskEntryModal = openTaskEntryModal;
 function openManageTasksModal(){
   modalBody.innerHTML = `
     <h3>Manage task list</h3>
-    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-6px 0 12px;">Use ▲ / ▼ to reorder — this is the order tasks appear in the weekly grid.</p>
+    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-6px 0 12px;">Use ▲ / ▼ to reorder. Click a name to rename it — this updates the task everywhere, including past history.</p>
     <div id="templateList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:280px;overflow-y:auto;"></div>
     <div class="form-grid"><div class="field full"><label>New task name</label><input type="text" id="f_newTask" placeholder="e.g. New Bot Queue Review"></div></div>
     <div class="modal-actions" style="justify-content:space-between;">
@@ -1862,9 +1862,10 @@ function openManageTasksModal(){
       return;
     }
     document.getElementById('templateList').innerHTML = DB.taskTemplates.map((tt,i)=>`
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--beige);border-radius:8px;">
-        <span style="font-size:12.5px;">${tt.name}</span>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--beige);border-radius:8px;gap:6px;">
+        <input type="text" value="${escAttr(tt.name)}" id="tplname_${tt.id}" style="flex:1;font-size:12.5px;">
         <div style="display:flex;gap:2px;">
+          <button class="icon-btn" onclick="renameTemplate('${tt.id}')" title="Save name">✓</button>
           <button class="icon-btn" onclick="moveTemplate('${tt.id}',-1)" title="Move up" ${i===0?'disabled style="opacity:0.3;"':''}>▲</button>
           <button class="icon-btn" onclick="moveTemplate('${tt.id}',1)" title="Move down" ${i===DB.taskTemplates.length-1?'disabled style="opacity:0.3;"':''}>▼</button>
           <button class="icon-btn" onclick="removeTemplate('${tt.id}')" title="Remove">✕</button>
@@ -1909,6 +1910,29 @@ async function moveTemplate(id, direction){
   renderWeekGrid();
 }
 window.moveTemplate = moveTemplate;
+
+async function renameTemplate(id){
+  const tt = DB.taskTemplates.find(t=>t.id===id); if(!tt) return;
+  const input = document.getElementById('tplname_'+id);
+  const newName = input.value.trim();
+  if(!newName){ toast('Task name cannot be blank'); return; }
+  const oldName = tt.name;
+  if(newName===oldName) return;
+  if(DB.taskTemplates.some(t=>t.id!==id && t.name.toLowerCase()===newName.toLowerCase())){ toast('Another task already has that name'); return; }
+
+  tt.name = newName;
+  let updatedTasks = 0, updatedAids = 0;
+  DB.dailyTasks.forEach(t=>{ if(t.task===oldName){ t.task=newName; updatedTasks++; } });
+  DB.jobAids.forEach(j=>{ if(j.task===oldName){ j.task=newName; updatedAids++; } });
+
+  await saveOne('taskTemplates');
+  if(updatedTasks>0) await saveOne('dailyTasks');
+  if(updatedAids>0) await saveOne('jobAids');
+
+  renderWeekGrid(); renderDailyTasks(); renderJobAids();
+  toast(`Renamed to "${newName}"${updatedTasks?` — updated ${updatedTasks} logged task${updatedTasks>1?'s':''}`:''}`);
+}
+window.renameTemplate = renameTemplate;
 
 /* ---------------- job aids ---------------- */
 function renderJobAids(){
