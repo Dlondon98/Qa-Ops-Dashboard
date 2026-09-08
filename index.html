@@ -299,6 +299,7 @@
           <div class="kpi" style="--accent:#1f7a44"><div class="label" id="kpiRateLabel">Completion rate</div><div class="value" id="kpiRate">0%</div><div class="delta" id="kpiRateDelta">&mdash;</div></div>
           <div class="kpi" style="--accent:var(--blue)"><div class="label">Avg. processing time</div><div class="value" id="kpiAvgTime">&mdash;</div><div class="delta" id="kpiAvgTimeDelta">&mdash;</div></div>
           <div class="kpi" style="--accent:var(--orange)"><div class="label" id="kpiVolumeLabel">Total volume (BestRx + Portal)</div><div class="value" id="kpiVolume">0</div><div class="delta" id="kpiVolumeDelta">&mdash;</div></div>
+          <div class="kpi" style="--accent:var(--pink)"><div class="label">Carryover / backlog left</div><div class="value" id="kpiCarryover">0</div><div class="delta" id="kpiCarryoverDelta">&mdash;</div></div>
         </div>
         <div class="charts-row">
           <div class="card"><h3>Tasks completed per day</h3><div class="card-chart-wrap"><canvas id="trendChart"></canvas></div></div>
@@ -307,6 +308,17 @@
         <div class="charts-row">
           <div class="card"><h3>Avg. processing time by task (hrs)</h3><div class="card-chart-wrap" style="height:220px;"><canvas id="taskTimeChart"></canvas></div></div>
           <div class="card"><h3>Volume by task (BestRx + Portal)</h3><div class="card-chart-wrap" style="height:220px;"><canvas id="volumeByTaskChart"></canvas></div></div>
+        </div>
+        <div class="charts-row" style="grid-template-columns:1fr;">
+          <div class="card">
+            <h3>Volume by task — today vs. yesterday <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· incoming queue/portal volume at task start</span></h3>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Task</th><th>Today</th><th>Yesterday</th><th>Change</th><th></th></tr></thead>
+                <tbody id="volumeTodayBody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
         <div class="charts-row" style="grid-template-columns:1fr;">
           <div class="card">
@@ -1570,7 +1582,11 @@ function cellHTML(date, task, shift){
   const hint = appMode==='staff'
     ? (isOthers ? `Assigned to ${entry.agent} — not yours` : entry.status==='Not Started' ? 'Tap to start' : entry.status==='In Progress' ? 'Tap to mark complete' : entry.status)
     : entry.status;
-  return `<button class="cell-btn${isOthers?' locked':''}" title="${escAttr(entry.task+' · '+hint)}" data-entry-id="${entry.id}">
+  const volBits = [];
+  if(entry.startVolume) volBits.push(`Start vol: ${entry.startVolume}`);
+  if(entry.status==='Completed' && entry.queueCleared===false) volBits.push(`Carryover: ${entry.carryOverAmount||0}`);
+  const volSuffix = volBits.length ? ' · '+volBits.join(' · ') : '';
+  return `<button class="cell-btn${isOthers?' locked':''}" title="${escAttr(entry.task+' · '+hint+volSuffix)}" data-entry-id="${entry.id}">
     <div class="cell-fill ${cls}">
       <span class="who" style="${isOthers?'':'color:'+staffColor(entry.agent)+';'}">${isOthers?'🔒':who}</span>
       ${entry.agent ? `<span class="st">${shortStatus}</span>` : ''}
@@ -2823,6 +2839,45 @@ function renderDashboard(){
   document.getElementById('kpiVolume').textContent = Math.round(totalVolume);
   document.getElementById('kpiVolumeDelta').textContent = 'BestRx + Portal, manual entry';
 
+  const notCleared = completed.filter(t=>t.queueCleared===false);
+  const totalCarryover = notCleared.reduce((s,t)=>s+(parseFloat(t.carryOverAmount)||0),0);
+  document.getElementById('kpiCarryover').textContent = Math.round(totalCarryover);
+  document.getElementById('kpiCarryoverDelta').textContent = notCleared.length ? `${notCleared.length} task${notCleared.length>1?'s':''} not fully cleared` : 'All cleared this period';
+
+  // Volume by task: today vs yesterday (incoming queue/portal volume at task start)
+  const y = addDays(todayStr(), -1);
+  const todayVol = {}, ydayVol = {};
+  DB.dailyTasks.forEach(t=>{
+    const v = parseFloat(t.startVolume) || 0;
+    if(v<=0) return;
+    if(t.date===todayStr()) todayVol[t.task] = (todayVol[t.task]||0) + v;
+    else if(t.date===y) ydayVol[t.task] = (ydayVol[t.task]||0) + v;
+  });
+  const volTasks = [...new Set([...Object.keys(todayVol), ...Object.keys(ydayVol)])];
+  const volBody = document.getElementById('volumeTodayBody');
+  if(volTasks.length===0){
+    volBody.innerHTML = `<tr><td colspan="5"><div class="empty">No start volume logged yet today or yesterday.</div></td></tr>`;
+  } else {
+    const volRows = volTasks.map(task=>{
+      const t = todayVol[task]||0, yy = ydayVol[task]||0;
+      let pct = null;
+      if(yy>0) pct = Math.round(100*(t-yy)/yy);
+      else if(t>0) pct = 100;
+      const isSpike = yy>0 ? pct>=50 : t>=10;
+      return {task, t, yy, pct, isSpike};
+    }).sort((a,b)=>(b.isSpike-a.isSpike) || (b.t-a.t));
+    volBody.innerHTML = volRows.map(r=>{
+      const arrow = r.pct===null ? '' : r.pct>0 ? '<span style="color:#B3204D;">▲</span> ' : r.pct<0 ? '<span style="color:#1f7a44;">▼</span> ' : '';
+      return `<tr${r.isSpike?' style="background:rgba(179,32,77,0.04);"':''}>
+        <td>${r.task}</td>
+        <td>${r.t}</td>
+        <td>${r.yy}</td>
+        <td>${r.pct!==null ? arrow+(r.pct>=0?'+':'')+r.pct+'%' : '—'}</td>
+        <td>${r.isSpike ? '<span class="badge b-spike">⚠ Spike</span>' : '<span class="badge b-ok">Normal</span>'}</td>
+      </tr>`;
+    }).join('');
+  }
+
   // Spike detection: compare current period's completed count per task vs baseline (avg per day for daily, total for weekly)
   const curByTask = {}, baseByTask = {};
   completed.forEach(t=>{ curByTask[t.task] = (curByTask[t.task]||0)+1; });
@@ -2946,7 +3001,10 @@ document.getElementById('exportTasks').onclick = ()=>{
     {label:'Date', get:r=>r.date},{label:'Task', get:r=>r.task},{label:'Shift', get:r=>r.shift},{label:'Agent', get:r=>r.agent},
     {label:'Status', get:r=>r.status},{label:'Started By', get:r=>r.startedBy},{label:'Started At', get:r=>r.startedAt},
     {label:'Completed By', get:r=>r.completedBy},{label:'Completed At', get:r=>r.completedAt},{label:'Processing Time (hrs)', get:r=>r.processingHrs},
-    {label:'Amount Completed (BestRx)', get:r=>r.bestRx},{label:'Amount Completed (Portal)', get:r=>r.portal},{label:'Notes', get:r=>r.notes}
+    {label:'Start Portal Pages', get:r=>r.startPortalPages},{label:'Start BestRx Queue', get:r=>r.startBestRxQueue},{label:'Start Volume (total)', get:r=>r.startVolume},
+    {label:'Amount Completed (BestRx)', get:r=>r.bestRx},{label:'Amount Completed (Portal)', get:r=>r.portal},
+    {label:'Queue Cleared', get:r=>r.queueCleared===true?'Yes':r.queueCleared===false?'No':''},{label:'Carryover Amount', get:r=>r.carryOverAmount},
+    {label:'Feedback/Notes', get:r=>r.feedbackNote||r.notes}
   ]);
   downloadCSV(csv, 'gifthealth_daily_tasks.csv'); toast('CSV downloaded — open in Excel or import to Google Sheets');
 };
