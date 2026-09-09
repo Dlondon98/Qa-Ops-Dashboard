@@ -96,6 +96,7 @@
   .st-notstarted{background:#FFD9D9;color:#A3172F;}
   .st-inprogress{background:#FFF0AD;color:#8A6D00;}
   .st-completed{background:#D4F3DC;color:#1f7a44;}
+  .st-carryover{background:#E3D9FF;color:#4B3F72;}
 
   .icon-btn{background:none;border:none;cursor:pointer;color:var(--purple);opacity:0.7;padding:4px;font-size:13px;}
   .icon-btn:hover{opacity:1;}
@@ -218,6 +219,7 @@
   .cs-open{background:#FFD9D9;}
   .cs-progress{background:#FFF0AD;}
   .cs-done{background:#D4F3DC;}
+  .cs-carryover{background:#E3D9FF;}
   .cs-na{background:#eee;}
   .cell-fill .who{font-size:11px;font-weight:800;color:var(--purple);line-height:1.1;}
   .cell-fill .st{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.02em;color:rgba(46,3,38,0.55);line-height:1.1;}
@@ -370,6 +372,7 @@
             <span class="lg-item"><span class="lg-dot" style="background:#FFD9D9;"></span> Not started</span>
             <span class="lg-item"><span class="lg-dot" style="background:#FFF0AD;"></span> In progress</span>
             <span class="lg-item"><span class="lg-dot" style="background:#D4F3DC;"></span> Completed</span>
+            <span class="lg-item"><span class="lg-dot" style="background:#E3D9FF;"></span> Carryover</span>
             <span class="lg-item"><span class="lg-dot" style="background:#eee;"></span> N/A</span>
             <span class="lg-item">Click a cell to start, complete, or edit it.</span>
           </div>
@@ -380,7 +383,7 @@
           <div class="panel-head" style="margin-bottom:10px;">
             <div class="filters">
               <input type="date" id="taskDateFilter">
-              <select id="taskStatusFilter"><option value="">All statuses</option><option>Not Started</option><option>In Progress</option><option>Completed</option><option>N/A</option></select>
+              <select id="taskStatusFilter"><option value="">All statuses</option><option>Not Started</option><option>In Progress</option><option>Completed</option><option>Carryover</option><option>N/A</option></select>
               <button class="btn btn-ghost btn-sm" id="generateChecklistBtn">Generate today's checklist</button>
             </div>
           </div>
@@ -785,7 +788,7 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
 
 /* ---------------- badges ---------------- */
 function taskStatusBadge(s){
-  const cls = s==='Completed'?'st-completed':s==='In Progress'?'st-inprogress':s==='N/A'?'b-na':'st-notstarted';
+  const cls = s==='Completed'?'st-completed':s==='In Progress'?'st-inprogress':s==='N/A'?'b-na':s==='Carryover'?'st-carryover':'st-notstarted';
   return `<span class="badge ${cls}">${s}</span>`;
 }
 function violationBadge(entry){
@@ -809,8 +812,75 @@ function tickLiveClock(){
   face.textContent = now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit'});
   document.getElementById('liveClockDate').textContent = now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
   updateLunchStatus();
+  checkEndOfShiftPrompt();
 }
 setInterval(tickLiveClock, 1000);
+
+/* ---------------- end-of-shift carryover reminder ---------------- */
+let endOfShiftPromptShownFor = null; // 'date|staffName' once shown, don't re-trigger same day
+function checkEndOfShiftPrompt(){
+  if(appMode!=='staff' || !currentStaffName) return;
+  if(overlay.classList.contains('active')) return; // don't interrupt another modal
+  const roster = DB.staff.find(s=>s.name===currentStaffName);
+  if(!roster || !roster.schedEnd) return;
+
+  const today = todayStr();
+  const key = today+'|'+currentStaffName;
+  if(endOfShiftPromptShownFor===key) return;
+
+  const now = new Date();
+  const nowMin = now.getHours()*60+now.getMinutes();
+  const [eh,em] = roster.schedEnd.split(':').map(Number);
+  const endMin = eh*60+em;
+  const promptStart = endMin-30;
+  if(nowMin < promptStart || nowMin > endMin+30) return; // only within a ~50 min window around end of shift
+
+  const incomplete = DB.dailyTasks.filter(t=>t.date===today && t.agent===currentStaffName && (t.status==='Not Started' || t.status==='In Progress'));
+  if(incomplete.length===0){ endOfShiftPromptShownFor = key; return; }
+
+  endOfShiftPromptShownFor = key;
+  openEndOfShiftModal(incomplete);
+}
+
+function openEndOfShiftModal(tasks){
+  modalBody.innerHTML = `
+    <h3>Before you head out 👋</h3>
+    <p style="font-size:12.5px;color:rgba(46,3,38,0.55);margin:-4px 0 12px;">Your shift is wrapping up and these tasks are still open. Log how much is left in each queue so the next shift/manager has it documented.</p>
+    <div style="display:flex;flex-direction:column;gap:10px;max-height:340px;overflow-y:auto;">
+      ${tasks.map(t=>`
+        <div class="card" style="padding:10px 12px;">
+          <div style="font-weight:700;font-size:12.5px;margin-bottom:6px;">${t.task} <span style="font-weight:400;color:rgba(46,3,38,0.5);">(${t.shift}) · ${taskStatusBadge(t.status)}</span></div>
+          <div class="form-grid">
+            <div class="field"><label>Amount left / carryover</label><input type="number" min="0" class="eos-carry" data-id="${t.id}" value="${t.carryOverAmount||''}" placeholder="e.g. 8"></div>
+            <div class="field full"><label>Note (optional)</label><input type="text" class="eos-note" data-id="${t.id}" value="${escAttr(t.feedbackNote||'')}" placeholder="Anything the next shift should know"></div>
+          </div>
+        </div>`).join('')}
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Remind me later</button>
+      <button class="btn btn-primary" id="saveEndOfShiftBtn">Save carryover</button>
+    </div>`;
+  overlay.classList.add('active');
+  document.getElementById('saveEndOfShiftBtn').onclick = async ()=>{
+    document.querySelectorAll('.eos-carry').forEach(input=>{
+      const t = DB.dailyTasks.find(x=>x.id===input.dataset.id); if(!t) return;
+      if(input.value){
+        t.carryOverAmount = parseFloat(input.value);
+        t.queueCleared = false;
+        t.status = 'Carryover';
+      }
+    });
+    document.querySelectorAll('.eos-note').forEach(input=>{
+      const t = DB.dailyTasks.find(x=>x.id===input.dataset.id); if(!t) return;
+      if(input.value) t.feedbackNote = input.value;
+    });
+    await saveOne('dailyTasks');
+    closeModal();
+    renderWeekGrid(); renderDailyTasks();
+    toast('Carryover logged — thanks!');
+  };
+}
+window.openEndOfShiftModal = openEndOfShiftModal;
 tickLiveClock();
 
 function updateLunchStatus(){
@@ -1575,8 +1645,8 @@ function cellHTML(date, task, shift){
     }
     return `<button class="cell-btn empty-cell" title="Add entry" data-date="${escAttr(date)}" data-task="${escAttr(task)}" data-shift="${escAttr(shift)}">+</button>`;
   }
-  const cls = entry.status==='Completed'?'cs-done':entry.status==='In Progress'?'cs-progress':entry.status==='N/A'?'cs-na':'cs-open';
-  const shortStatus = entry.status==='In Progress'?'IP':entry.status==='Not Started'?'NS':entry.status==='Completed'?'Done':'N/A';
+  const cls = entry.status==='Completed'?'cs-done':entry.status==='In Progress'?'cs-progress':entry.status==='N/A'?'cs-na':entry.status==='Carryover'?'cs-carryover':'cs-open';
+  const shortStatus = entry.status==='In Progress'?'IP':entry.status==='Not Started'?'NS':entry.status==='Completed'?'Done':entry.status==='Carryover'?'C/O':'N/A';
   const who = entry.agent ? initialsOf(entry.agent) : shortStatus;
   const isOthers = appMode==='staff' && entry.agent && currentStaffName && entry.agent!==currentStaffName;
   const hint = appMode==='staff'
@@ -1825,7 +1895,7 @@ function openTaskEntryModal(existing, prefill){
       <div class="field"><label>Shift</label><select id="f_shift"><option ${t.shift==='AM'?'selected':''}>AM</option><option ${t.shift==='PM'?'selected':''}>PM</option><option ${t.shift==='N/A'?'selected':''}>N/A</option></select></div>
       <div class="field full"><label>Task</label><select id="f_task">${taskOptions}</select></div>
       <div class="field"><label>Agent</label><input type="text" id="f_agent" value="${t.agent}" list="agentSuggestions"></div>
-      <div class="field"><label>Status</label><select id="f_status"><option ${t.status==='Not Started'?'selected':''}>Not Started</option><option ${t.status==='In Progress'?'selected':''}>In Progress</option><option ${t.status==='Completed'?'selected':''}>Completed</option><option ${t.status==='N/A'?'selected':''}>N/A</option></select></div>
+      <div class="field"><label>Status</label><select id="f_status"><option ${t.status==='Not Started'?'selected':''}>Not Started</option><option ${t.status==='In Progress'?'selected':''}>In Progress</option><option ${t.status==='Completed'?'selected':''}>Completed</option><option ${t.status==='Carryover'?'selected':''}>Carryover</option><option ${t.status==='N/A'?'selected':''}>N/A</option></select></div>
       <div class="field"><label>Started at</label><input type="datetime-local" id="f_startedAt" value="${t.startedAt||''}"></div>
       <div class="field"><label>Completed at</label><input type="datetime-local" id="f_completedAt" value="${t.completedAt||''}"></div>
       <div class="field"><label>Amount completed (BestRx)</label><input type="text" id="f_bestrx" value="${t.bestRx||''}"></div>
@@ -2275,6 +2345,16 @@ function openManageStaffModal(){
     <div id="staffListWrap" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;max-height:340px;overflow-y:auto;"></div>
     <div class="form-grid"><div class="field full"><label>Add staff member</label><input type="text" id="f_newStaff" placeholder="Full name"></div></div>
     <div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--line);">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;color:rgba(46,3,38,0.6);margin-bottom:6px;">Merge duplicate names</label>
+      <p style="font-size:11.5px;color:rgba(46,3,38,0.5);margin:0 0 8px;">e.g. "Olivia" and "Olivia Bowman" are the same person — combine everything under one name.</p>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <select id="mergeFromSelect" style="flex:1;min-width:120px;"><option value="">Merge this name…</option></select>
+        <span style="font-size:11px;color:rgba(46,3,38,0.5);">into</span>
+        <select id="mergeIntoSelect" style="flex:1;min-width:120px;"><option value="">…this name</option></select>
+        <button class="btn btn-ghost btn-sm" id="mergeNamesBtn">Merge</button>
+      </div>
+    </div>
+    <div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--line);">
       <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;color:rgba(46,3,38,0.6);margin-bottom:6px;">Permanently delete all records for a name</label>
       <p style="font-size:11.5px;color:rgba(46,3,38,0.5);margin:0 0 8px;">Removes their daily tasks, lunch entries, attendance log, and coaching notes — works even if they're not on the roster above (e.g. test data typed in by hand).</p>
       <div style="display:flex;gap:6px;">
@@ -2307,12 +2387,36 @@ function openManageStaffModal(){
   renderList();
   window._renderStaffList = renderList;
   overlay.classList.add('active');
+  const allKnownNames = ()=> [...new Set([
+    ...DB.staff.map(s=>s.name),
+    ...DB.dailyTasks.map(t=>t.agent),
+    ...DB.lunchLog.map(l=>l.staff),
+    ...DB.attendance.map(a=>a.staff),
+    ...DB.coachingNotes.map(n=>n.staff),
+    ...DB.tickets.map(t=>t.createdBy)
+  ].filter(Boolean))].sort();
+  const populateMergeSelects = ()=>{
+    const names = allKnownNames();
+    document.getElementById('mergeFromSelect').innerHTML = `<option value="">Merge this name…</option>` + names.map(n=>`<option value="${escAttr(n)}">${n}</option>`).join('');
+    document.getElementById('mergeIntoSelect').innerHTML = `<option value="">…this name</option>` + names.map(n=>`<option value="${escAttr(n)}">${n}</option>`).join('');
+  };
+  populateMergeSelects();
+  document.getElementById('mergeNamesBtn').onclick = async ()=>{
+    const from = document.getElementById('mergeFromSelect').value;
+    const into = document.getElementById('mergeIntoSelect').value;
+    if(!from || !into){ toast('Choose both names'); return; }
+    if(from.toLowerCase()===into.toLowerCase()){ toast('Choose two different names'); return; }
+    await mergeStaffNames(from, into);
+    renderList();
+    populateMergeSelects();
+  };
   document.getElementById('purgeNameBtn').onclick = async ()=>{
     const name = document.getElementById('f_purgeName').value.trim();
     if(!name){ toast('Enter a name to purge'); return; }
     await purgeStaffData(name);
     document.getElementById('f_purgeName').value = '';
     renderList();
+    populateMergeSelects();
   };
   document.getElementById('addStaffBtn2').onclick = async ()=>{
     const name = document.getElementById('f_newStaff').value.trim();
@@ -2375,6 +2479,42 @@ async function purgeStaffData(name){
   toast(`Removed all records for "${name}"`);
 }
 window.purgeStaffData = purgeStaffData;
+
+async function mergeStaffNames(fromName, toName){
+  const fl = fromName.toLowerCase(), tl = toName.toLowerCase();
+  const counts = {
+    tasks: DB.dailyTasks.filter(t=>(t.agent||'').toLowerCase()===fl).length,
+    lunch: DB.lunchLog.filter(l=>(l.staff||'').toLowerCase()===fl).length,
+    attendance: DB.attendance.filter(a=>(a.staff||'').toLowerCase()===fl).length,
+    notes: DB.coachingNotes.filter(n=>(n.staff||'').toLowerCase()===fl).length,
+    tickets: DB.tickets.filter(t=>(t.createdBy||'').toLowerCase()===fl).length
+  };
+  const total = counts.tasks+counts.lunch+counts.attendance+counts.notes+counts.tickets;
+  if(!confirm(`Merge "${fromName}" into "${toName}"? This updates ${counts.tasks} daily task entries, ${counts.lunch} lunch entries, ${counts.attendance} attendance entries, ${counts.notes} coaching notes, and ${counts.tickets} tickets to use "${toName}" instead. "${fromName}" will be removed from the roster if present. This can't be undone.`)) return;
+
+  DB.dailyTasks.forEach(t=>{ if((t.agent||'').toLowerCase()===fl) t.agent=toName; });
+  DB.lunchLog.forEach(l=>{ if((l.staff||'').toLowerCase()===fl) l.staff=toName; });
+  DB.attendance.forEach(a=>{ if((a.staff||'').toLowerCase()===fl) a.staff=toName; });
+  DB.coachingNotes.forEach(n=>{ if((n.staff||'').toLowerCase()===fl) n.staff=toName; });
+  DB.tickets.forEach(tk=>{
+    if((tk.createdBy||'').toLowerCase()===fl) tk.createdBy=toName;
+    (tk.notesLog||[]).forEach(entry=>{ if((entry.author||'').toLowerCase()===fl) entry.author=toName; });
+  });
+
+  const fromRoster = DB.staff.find(s=>s.name.toLowerCase()===fl);
+  const toRoster = DB.staff.find(s=>s.name.toLowerCase()===tl);
+  if(fromRoster && !toRoster){
+    fromRoster.name = toName; // keep the schedule, just rename
+  } else if(fromRoster && toRoster){
+    DB.staff = DB.staff.filter(s=>s!==fromRoster); // drop duplicate roster row, keep toRoster's own schedule
+  }
+
+  await saveAll();
+  refreshAgentSuggestions();
+  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets();
+  toast(`Merged "${fromName}" into "${toName}"`);
+}
+window.mergeStaffNames = mergeStaffNames;
 
 async function generateTodaysChecklist(){
   const date = document.getElementById('taskDateFilter').value || todayStr();
@@ -2920,11 +3060,11 @@ function renderDashboard(){
     options:{ plugins:{legend:{display:false}}, scales:{ y:{beginAtZero:true, ticks:{precision:0}}, x:{grid:{display:false}} } }
   });
 
-  const statusCounts = ['Not Started','In Progress','Completed','N/A'].map(s=>cur.filter(t=>t.status===s).length);
+  const statusCounts = ['Not Started','In Progress','Completed','Carryover','N/A'].map(s=>cur.filter(t=>t.status===s).length);
   if(statusChart) statusChart.destroy();
   statusChart = new Chart(document.getElementById('statusChart'), {
     type:'doughnut',
-    data:{ labels:['Not Started','In Progress','Completed','N/A'], datasets:[{ data:statusCounts, backgroundColor:['#FF764D','#A9F5FF','#1f7a44','#cccccc'], borderWidth:0 }]},
+    data:{ labels:['Not Started','In Progress','Completed','Carryover','N/A'], datasets:[{ data:statusCounts, backgroundColor:['#FF764D','#A9F5FF','#1f7a44','#7B4B94','#cccccc'], borderWidth:0 }]},
     options:{ plugins:{legend:{position:'bottom', labels:{boxWidth:10,font:{size:11}}}}, cutout:'62%' }
   });
 
