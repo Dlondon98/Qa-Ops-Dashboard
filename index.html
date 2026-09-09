@@ -1886,9 +1886,8 @@ function openCompleteModal(id){
 window.openCompleteModal = openCompleteModal;
 
 function openTaskEntryModal(existing, prefill){
-  const t = existing || prefill || {id:null, date:document.getElementById('taskDateFilter').value||todayStr(), task:DB.taskTemplates[0]?.name||'', shift:'AM', agent:'', status:'Not Started', startedAt:'', completedAt:'', bestRx:'', portal:'', notes:'', startPortalPages:'', startBestRxQueue:'', carryOverAmount:'', queueCleared:null, feedbackNote:''};
+  const t = existing || prefill || {id:null, date:document.getElementById('taskDateFilter').value||todayStr(), task:DB.taskTemplates[0]?.name||'', shift:'AM', agent:'', status:'Not Started', startedAt:'', completedAt:'', bestRx:'', portal:'', notes:''};
   const taskOptions = DB.taskTemplates.map(tt=>`<option value="${tt.name}" ${tt.name===t.task?'selected':''}>${tt.name}</option>`).join('');
-  const cleared = t.queueCleared!==false;
   modalBody.innerHTML = `
     <h3>${existing?'Edit task entry':'Add task entry'}</h3>
     <div class="form-grid">
@@ -1899,37 +1898,19 @@ function openTaskEntryModal(existing, prefill){
       <div class="field"><label>Status</label><select id="f_status"><option ${t.status==='Not Started'?'selected':''}>Not Started</option><option ${t.status==='In Progress'?'selected':''}>In Progress</option><option ${t.status==='Completed'?'selected':''}>Completed</option><option ${t.status==='Carryover'?'selected':''}>Carryover</option><option ${t.status==='N/A'?'selected':''}>N/A</option></select></div>
       <div class="field"><label>Started at</label><input type="datetime-local" id="f_startedAt" value="${t.startedAt||''}"></div>
       <div class="field"><label>Completed at</label><input type="datetime-local" id="f_completedAt" value="${t.completedAt||''}"></div>
-      <div class="field full" style="border-top:1px dashed var(--line);padding-top:10px;margin-top:2px;"><label style="text-transform:uppercase;font-size:10px;letter-spacing:0.03em;color:rgba(46,3,38,0.5);">Volume the staff member logged</label></div>
-      <div class="field"><label>Portal pages (at start)</label><input type="number" min="0" id="f_startPages" value="${t.startPortalPages||''}"></div>
-      <div class="field"><label>BestRx queue (at start)</label><input type="number" min="0" id="f_startQueue" value="${t.startBestRxQueue||''}"></div>
       <div class="field"><label>Amount completed (BestRx)</label><input type="text" id="f_bestrx" value="${t.bestRx||''}"></div>
       <div class="field"><label>Amount completed (Portal)</label><input type="text" id="f_portal" value="${t.portal||''}"></div>
-      <div class="field full" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="f_clearedEdit" ${cleared?'checked':''} style="width:auto;">
-        <label style="margin:0;">Cleared the queue completely</label>
-      </div>
-      <div class="field full" id="carryoverEditWrap" style="display:${cleared?'none':''};">
-        <label>Carryover left</label>
-        <input type="number" min="0" id="f_carryoverEdit" value="${t.carryOverAmount||''}">
-      </div>
-      <div class="field full"><label>Feedback / Notes</label><textarea id="f_notes" rows="2">${t.feedbackNote||t.notes||''}</textarea></div>
+      <div class="field full"><label>Notes</label><textarea id="f_notes" rows="2">${t.notes||''}</textarea></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" id="saveTaskEntryBtn">Save</button>
     </div>`;
   overlay.classList.add('active');
-  document.getElementById('f_clearedEdit').onchange = (e)=>{
-    document.getElementById('carryoverEditWrap').style.display = e.target.checked ? 'none' : '';
-  };
   document.getElementById('saveTaskEntryBtn').onclick = async ()=>{
     const startedAt = document.getElementById('f_startedAt').value;
     const completedAt = document.getElementById('f_completedAt').value;
     const agent = document.getElementById('f_agent').value;
-    const pages = document.getElementById('f_startPages').value;
-    const queue = document.getElementById('f_startQueue').value;
-    const isCleared = document.getElementById('f_clearedEdit').checked;
-    const feedback = document.getElementById('f_notes').value;
     const rec = {
       id: t.id || uid(),
       date: document.getElementById('f_date').value || todayStr(),
@@ -1938,15 +1919,11 @@ function openTaskEntryModal(existing, prefill){
       agent, status: document.getElementById('f_status').value,
       startedBy: agent, startedAt, completedBy: agent, completedAt,
       processingHrs: computeTaskDuration(startedAt, completedAt),
-      startPortalPages: pages, startBestRxQueue: queue,
-      startVolume: (parseFloat(pages)||0)*10 + (parseFloat(queue)||0),
       bestRx: document.getElementById('f_bestrx').value,
       portal: document.getElementById('f_portal').value,
-      queueCleared: isCleared,
-      carryOverAmount: isCleared ? 0 : (parseFloat(document.getElementById('f_carryoverEdit').value)||0),
-      feedbackNote: feedback, notes: feedback
+      notes: document.getElementById('f_notes').value
     };
-    if(existing){ DB.dailyTasks = DB.dailyTasks.map(x=>x.id===rec.id?{...x, ...rec}:x); } else { DB.dailyTasks.push(rec); }
+    if(existing){ DB.dailyTasks = DB.dailyTasks.map(x=>x.id===rec.id?{...x, ...rec}:x); } else { DB.dailyTasks.push({startPortalPages:'', startBestRxQueue:'', startVolume:'', feedbackNote:'', queueCleared:null, carryOverAmount:'', ...rec}); }
     await saveOne('dailyTasks'); closeModal(); renderDailyTasks(); renderWeekGrid(); renderDashboard(); refreshAgentSuggestions(); toast('Task entry saved');
   };
 }
