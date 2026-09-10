@@ -514,7 +514,7 @@
         <div class="panel-head"><h2>Attendance Points <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· 6-month rolling window, per policy</span></h2></div>
         <div class="table-wrap" style="margin-bottom:22px;"><div class="table-scroll">
           <table>
-            <thead><tr><th>Staff</th><th>Points (6mo)</th><th>Stage</th></tr></thead>
+            <thead><tr><th>Staff</th><th>Points (6mo)</th><th>Stage</th><th>Lunch overages (6mo)</th></tr></thead>
             <tbody id="pointsSummaryBody"></tbody>
           </table>
         </div></div>
@@ -705,7 +705,8 @@ const VIOLATION_POINTS = {
   'Tardy >15 min': 1,
   'Early Departure': 1,
   'Absence': 2,
-  'No-Call/No-Show': 3
+  'No-Call/No-Show': 3,
+  'Lunch Overage': 0
 };
 function minutesBetweenTimes(t1, t2){
   if(!t1 || !t2) return null;
@@ -1037,7 +1038,28 @@ document.getElementById('lunchInBtn').onclick = async ()=>{
   if(!openEntry){ toast(`${staff} isn't clocked out for lunch`); return; }
   openEntry.clockInAt = nowLocalInput();
   openEntry.durationMin = Math.round((new Date(openEntry.clockInAt) - new Date(openEntry.clockOutAt))/60000);
-  await saveOne('lunchLog'); renderLunch(); updateLunchStatus(); toast(`${staff} clocked back in`);
+  await saveOne('lunchLog');
+
+  const maxMin = DB.settings.maxLunchMinutes || 30;
+  const graceMin = 3;
+  let overageMsg = '';
+  if(!openEntry.flaggedOverage && openEntry.durationMin > maxMin + graceMin){
+    const overBy = openEntry.durationMin - maxMin;
+    const rec = {
+      id: uid(), date: today, staff,
+      schedStart:'', schedEnd:'', scheduleOverride:false, clockIn:'', clockOut:'',
+      violationType: 'Lunch Overage', notifiedProperly:'N/A', excused:false, excuseReason:'',
+      notes: `Lunch ran ${openEntry.durationMin} min — ${overBy} min over the standard ${maxMin} min (3 min grace applied). Auto-flagged, no points.`
+    };
+    rec.points = computeAttendancePoints(rec);
+    DB.attendance.push(rec);
+    openEntry.flaggedOverage = true;
+    await saveOne('lunchLog');
+    await saveOne('attendance');
+    renderAttendance();
+    overageMsg = ` — ⚠ lunch was ${overBy} min over, flagged in Attendance`;
+  }
+  renderLunch(); updateLunchStatus(); toast(`${staff} clocked back in${overageMsg}`);
 };
 document.getElementById('lunchDateFilter').onchange = renderLunch;
 document.getElementById('exportLunch').onclick = ()=>{
@@ -1056,18 +1078,21 @@ function renderAttendance(){
   // points summary
   const summaryBody = document.getElementById('pointsSummaryBody');
   if(staffNames.length===0){
-    summaryBody.innerHTML = `<tr><td colspan="3"><div class="empty">No staff on the roster yet.</div></td></tr>`;
+    summaryBody.innerHTML = `<tr><td colspan="4"><div class="empty">No staff on the roster yet.</div></td></tr>`;
   } else {
+    const sixMoAgo = addDays(asOf, -182);
     const summaryRows = staffNames.map(staff=>{
       const pts = rollingAttendancePoints(staff, asOf);
       const stage = attendanceStage(pts);
-      return {staff, pts, stage};
+      const overageCount = DB.attendance.filter(a=>a.staff===staff && a.violationType==='Lunch Overage' && a.date>sixMoAgo && a.date<=asOf).length;
+      return {staff, pts, stage, overageCount};
     }).sort((a,b)=>b.pts-a.pts);
     summaryBody.innerHTML = summaryRows.map(r=>`
       <tr>
         <td><b>${r.staff}</b></td>
         <td>${r.pts}</td>
         <td><span class="badge ${r.stage.cls}">${r.stage.label}</span></td>
+        <td>${r.overageCount>0 ? `<span class="badge b-spike">${r.overageCount}</span>` : '0'}</td>
       </tr>`).join('');
   }
 
