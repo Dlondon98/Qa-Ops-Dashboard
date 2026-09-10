@@ -874,11 +874,40 @@ function tickLiveClock(){
   document.getElementById('liveClockDate').textContent = now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
   try{ updateLunchStatus(); }catch(e){ console.error('updateLunchStatus failed', e); }
   try{ checkEndOfShiftPrompt(); }catch(e){ console.error('checkEndOfShiftPrompt failed', e); }
+  try{ checkNoonCarryover(); }catch(e){ console.error('checkNoonCarryover failed', e); }
 }
 setInterval(tickLiveClock, 1000);
 
 /* ---------------- end-of-shift carryover reminder ---------------- */
 let endOfShiftPromptShownFor = null; // 'date|staffName' once shown, don't re-trigger same day
+/* ---------------- noon AM → PM carryover ---------------- */
+function isPastNoonFor(dateStr){
+  const now = new Date();
+  const noonForDate = new Date(dateStr+'T12:00:00');
+  return now.getTime() >= noonForDate.getTime();
+}
+
+async function checkNoonCarryover(){
+  const today = todayStr();
+  if(!isPastNoonFor(today)) return;
+  const amInProgress = DB.dailyTasks.filter(t=>t.date===today && t.shift==='AM' && t.status==='In Progress' && !t.carriedToPm);
+  if(amInProgress.length===0) return;
+  amInProgress.forEach(am=>{
+    let pm = DB.dailyTasks.find(t=>t.date===today && t.task===am.task && t.shift==='PM' && t.agent===am.agent);
+    if(!pm){
+      pm = {id:uid(), date:today, task:am.task, shift:'PM', agent:am.agent, status:'In Progress', startedBy:am.agent, startedAt:nowLocalInput(), completedBy:'', completedAt:'', processingHrs:'', bestRx:'', portal:'', notes:'', startPortalPages:'', startBestRxQueue:'', startVolume:'', feedbackNote:'', queueCleared:null, carryOverAmount:'', carriedToPm:false};
+      DB.dailyTasks.push(pm);
+    } else if(pm.status==='Not Started'){
+      pm.status = 'In Progress';
+      pm.startedBy = pm.agent;
+      pm.startedAt = pm.startedAt || nowLocalInput();
+    }
+    am.carriedToPm = true;
+  });
+  await saveOne('dailyTasks');
+  renderWeekGrid(); renderDailyTasks();
+}
+
 function checkEndOfShiftPrompt(){
   if(appMode!=='staff' || !currentStaffName) return;
   if(overlay.classList.contains('active')) return; // don't interrupt another modal
@@ -1762,6 +1791,10 @@ function cellHTML(date, task, shift){
     // unassigned — staff can't self-claim anymore, manager must assign it
     return `<div class="cell-btn empty-cell" style="cursor:default;" title="Not assigned yet — ask your manager">·</div>`;
   }
+  const amNoonLocked = appMode==='staff' && shift==='AM' && (entry.carriedToPm || (entry.status==='Not Started' && isPastNoonFor(date)));
+  if(amNoonLocked){
+    return `<div class="cell-btn empty-cell" style="cursor:default;background:#eee;" title="AM window passed — check the PM cell for this task">🔒</div>`;
+  }
   const cls = entry.status==='Completed'?'cs-done':entry.status==='In Progress'?'cs-progress':entry.status==='N/A'?'cs-na':entry.status==='Carryover'?'cs-carryover':'cs-open';
   const shortStatus = entry.status==='In Progress'?'IP':entry.status==='Not Started'?'NS':entry.status==='Completed'?'Done':entry.status==='Carryover'?'C/O':'N/A';
   const who = entry.agent ? initialsOf(entry.agent) : shortStatus;
@@ -1929,7 +1962,8 @@ function openCellModal(date, task, shift){
   const entries = DB.dailyTasks.filter(t=>t.date===date && t.task===task && t.shift===shift);
   const rows = entries.map(t=>{
     const isMine = t.agent===currentStaffName;
-    const canAct = appMode==='staff' && isMine && (t.status==='Not Started'||t.status==='In Progress');
+    const amLocked = t.shift==='AM' && (t.carriedToPm || (t.status==='Not Started' && isPastNoonFor(t.date)));
+    const canAct = appMode==='staff' && isMine && !amLocked && (t.status==='Not Started'||t.status==='In Progress');
     let actionBtn = '';
     if(appMode==='manager'){
       actionBtn = `<div style="display:flex;gap:4px;">
@@ -1944,7 +1978,7 @@ function openCellModal(date, task, shift){
     return `<div class="card" style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
       <div>
         <div style="font-weight:700;font-size:12.5px;color:${t.agent?staffColor(t.agent):'inherit'};">${t.agent||'Unassigned'}</div>
-        <div style="margin-top:3px;">${taskStatusBadge(t.status)}</div>
+        <div style="margin-top:3px;">${taskStatusBadge(t.status)}${amLocked ? ' <span style="font-size:10.5px;color:rgba(46,3,38,0.5);">🔒 AM window passed — see PM</span>' : ''}</div>
       </div>
       ${actionBtn}
     </div>`;
