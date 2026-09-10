@@ -629,6 +629,19 @@
         </div></div>
 
         <div class="panel-head">
+          <h2>Completion Log <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· AM vs. PM, this period</span></h2>
+          <div class="filters">
+            <select id="completionShiftFilter"><option value="">AM &amp; PM</option><option>AM</option><option>PM</option></select>
+          </div>
+        </div>
+        <div class="table-wrap" style="margin-bottom:22px;"><div class="table-scroll">
+          <table>
+            <thead><tr><th>Date</th><th>Staff</th><th>Shift</th><th>Task</th><th>Completed at</th><th>Processing time</th></tr></thead>
+            <tbody id="completionLogBody"></tbody>
+          </table>
+        </div></div>
+
+        <div class="panel-head">
           <h2>Coaching Notes</h2>
           <div class="filters">
             <select id="notesStatusFilter"><option value="">All statuses</option><option>Open</option><option>Resolved</option></select>
@@ -2033,6 +2046,10 @@ function openTaskEntryModal(existing, prefill){
       <div class="field"><label>Shift</label><select id="f_shift"><option ${t.shift==='AM'?'selected':''}>AM</option><option ${t.shift==='PM'?'selected':''}>PM</option><option ${t.shift==='N/A'?'selected':''}>N/A</option></select></div>
       <div class="field full"><label>Task</label><select id="f_task">${taskOptions}</select></div>
       <div class="field"><label>Agent</label><input type="text" id="f_agent" value="${t.agent}" list="agentSuggestions"></div>
+      <div class="field full" id="copyToPmWrap" style="display:${(t.shift==='AM')?'':'none'};align-items:center;gap:8px;">
+        <input type="checkbox" id="f_copyToPm" ${!existing?'checked':''} style="width:auto;">
+        <label style="margin:0;">Also assign this person to the PM shift of this task today</label>
+      </div>
       <div class="field"><label>Status</label><select id="f_status"><option ${t.status==='Not Started'?'selected':''}>Not Started</option><option ${t.status==='In Progress'?'selected':''}>In Progress</option><option ${t.status==='Completed'?'selected':''}>Completed</option><option ${t.status==='Carryover'?'selected':''}>Carryover</option><option ${t.status==='N/A'?'selected':''}>N/A</option></select></div>
       <div class="field"><label>Started at</label><input type="datetime-local" id="f_startedAt" value="${t.startedAt||''}"></div>
       <div class="field"><label>Completed at</label><input type="datetime-local" id="f_completedAt" value="${t.completedAt||''}"></div>
@@ -2059,6 +2076,9 @@ function openTaskEntryModal(existing, prefill){
   document.getElementById('f_clearedEdit').onchange = (e)=>{
     document.getElementById('carryoverEditWrap').style.display = e.target.checked ? 'none' : '';
   };
+  document.getElementById('f_shift').onchange = (e)=>{
+    document.getElementById('copyToPmWrap').style.display = e.target.value==='AM' ? '' : 'none';
+  };
   document.getElementById('saveTaskEntryBtn').onclick = async ()=>{
     const startedAt = document.getElementById('f_startedAt').value;
     const completedAt = document.getElementById('f_completedAt').value;
@@ -2067,11 +2087,13 @@ function openTaskEntryModal(existing, prefill){
     const queue = document.getElementById('f_startQueue').value;
     const isCleared = document.getElementById('f_clearedEdit').checked;
     const feedback = document.getElementById('f_notes').value;
+    const shift = document.getElementById('f_shift').value;
+    const date = document.getElementById('f_date').value || todayStr();
+    const task = document.getElementById('f_task').value;
+    const copyToPm = shift==='AM' && document.getElementById('f_copyToPm') && document.getElementById('f_copyToPm').checked;
     const rec = {
       id: t.id || uid(),
-      date: document.getElementById('f_date').value || todayStr(),
-      task: document.getElementById('f_task').value,
-      shift: document.getElementById('f_shift').value,
+      date, task, shift,
       agent, status: document.getElementById('f_status').value,
       startedBy: agent, startedAt, completedBy: agent, completedAt,
       processingHrs: computeTaskDuration(startedAt, completedAt),
@@ -2084,10 +2106,22 @@ function openTaskEntryModal(existing, prefill){
       feedbackNote: feedback, notes: feedback
     };
     if(existing){ DB.dailyTasks = DB.dailyTasks.map(x=>x.id===rec.id?{...x, ...rec}:x); } else { DB.dailyTasks.push(rec); }
-    await saveOne('dailyTasks'); closeModal(); renderDailyTasks(); renderWeekGrid(); renderDashboard(); refreshAgentSuggestions(); toast('Task entry saved');
+    if(copyToPm && agent) await copyAmAssignmentToPm(date, task, agent);
+    await saveOne('dailyTasks'); closeModal(); renderDailyTasks(); renderWeekGrid(); renderDashboard(); refreshAgentSuggestions(); toast(copyToPm && agent ? 'Saved — also assigned to PM' : 'Task entry saved');
   };
 }
 window.openTaskEntryModal = openTaskEntryModal;
+
+async function copyAmAssignmentToPm(date, task, agent){
+  const existingPm = DB.dailyTasks.filter(t=>t.date===date && t.task===task && t.shift==='PM');
+  if(existingPm.some(t=>t.agent===agent)) return; // already assigned
+  const blankSlot = existingPm.find(t=>!t.agent);
+  if(blankSlot){
+    blankSlot.agent = agent;
+  } else {
+    DB.dailyTasks.push({id:uid(), date, task, shift:'PM', agent, status:'Not Started', startedBy:'', startedAt:'', completedBy:'', completedAt:'', processingHrs:'', bestRx:'', portal:'', notes:'', startPortalPages:'', startBestRxQueue:'', startVolume:'', feedbackNote:'', queueCleared:null, carryOverAmount:''});
+  }
+}
 
 function openManageTasksModal(){
   modalBody.innerHTML = `
@@ -3083,6 +3117,7 @@ function renderTeam(){
   }
 
   renderPersonal(selectedStaff);
+  renderCompletionLog(selectedStaff);
   renderMetrics(selectedStaff);
 }
 
@@ -3138,6 +3173,33 @@ function renderPersonal(agent){
   }).join('');
 }
 document.getElementById('teamMasterFilter').onchange = renderTeam;
+
+function renderCompletionLog(selectedStaff){
+  const range = periodRange(dashPeriod);
+  const shiftF = document.getElementById('completionShiftFilter').value;
+  const rows = DB.dailyTasks.filter(t=>
+    inRange(t.date, range) &&
+    t.status==='Completed' &&
+    t.completedAt &&
+    (!selectedStaff || t.agent===selectedStaff) &&
+    (!shiftF || t.shift===shiftF)
+  ).sort((a,b)=> (b.date+b.completedAt).localeCompare(a.date+a.completedAt));
+
+  const body = document.getElementById('completionLogBody');
+  if(rows.length===0){ body.innerHTML = `<tr><td colspan="6"><div class="empty">No completed tasks in this period yet.</div></td></tr>`; return; }
+  body.innerHTML = rows.map(t=>`
+    <tr>
+      <td>${fmtDate(t.date)}</td>
+      <td>${t.agent||'—'}</td>
+      <td><span class="badge ${t.shift==='AM'?'b-na':'st-inprogress'}">${t.shift}</span></td>
+      <td>${t.task}</td>
+      <td>${fmtDT(t.completedAt)}</td>
+      <td>${formatHrsMins(t.processingHrs)}</td>
+    </tr>`).join('');
+}
+document.getElementById('completionShiftFilter').onchange = ()=>{
+  renderCompletionLog(document.getElementById('teamMasterFilter').value);
+};
 
 /* ---------------- metrics: performance alerts + coaching notes ---------------- */
 function renderMetrics(selectedStaff){
