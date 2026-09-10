@@ -925,7 +925,7 @@ function checkEndOfShiftPrompt(){
   const promptStart = endMin-30;
   if(nowMin < promptStart || nowMin > endMin+30) return; // only within a ~50 min window around end of shift
 
-  const incomplete = DB.dailyTasks.filter(t=>t.date===today && t.agent===currentStaffName && (t.status==='Not Started' || t.status==='In Progress'));
+  const incomplete = DB.dailyTasks.filter(t=>t.date===today && t.agent===currentStaffName && t.status==='Not Started');
   if(incomplete.length===0){ endOfShiftPromptShownFor = key; return; }
 
   endOfShiftPromptShownFor = key;
