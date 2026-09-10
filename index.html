@@ -265,6 +265,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z"/></svg>
       Tickets
     </button>
+    <button class="nav-btn" id="automationNavBtn" data-view="automation">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="10" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.3" fill="currentColor" stroke="none"/><path d="M8 15h8M4 9h2M4 15h2M18 9h2M18 15h2"/></svg>
+      Automation
+    </button>
     <button class="nav-btn manager-only" data-view="attendance">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M4 10h16"/><path d="M8 14h2M8 18h2M14 14h2M14 18h2"/></svg>
       Attendance
@@ -464,6 +468,46 @@
         </div></div>
       </div>
 
+      <!-- AUTOMATION -->
+      <div class="view" id="view-automation">
+        <div class="panel-head">
+          <h2>Automation</h2>
+          <div class="filters">
+            <div class="view-toggle" id="botPeriodToggle">
+              <button id="botPeriod8" data-hrs="8">8h</button>
+              <button id="botPeriod16" data-hrs="16">16h</button>
+              <button id="botPeriod24" class="active" data-hrs="24">24h</button>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="manageBotsBtn">Manage bots</button>
+            <button class="btn btn-ghost btn-sm" id="exportBotLogs">Export CSV</button>
+            <button class="btn btn-primary btn-sm" id="logBotVolumeBtn">+ Log today's volume</button>
+          </div>
+        </div>
+        <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-10px 0 16px;">Enter each bot's volume once a day — the average updates as a trailing 7-day (weekly) average. Each bot's status is judged against its own eval window (set in Manage bots) — the 8h/16h/24h toggle above just changes what the "Sustainable" column shows for planning, it doesn't affect status.</p>
+
+        <div class="kpi-grid" style="margin-bottom:18px;">
+          <div class="kpi" style="--accent:var(--purple)"><div class="label">Total avg. weekly volume</div><div class="value" id="botKpiVolume">0</div><div class="delta" id="botKpiVolumeDelta">&mdash;</div></div>
+          <div class="kpi" style="--accent:#1f7a44"><div class="label">Active bots</div><div class="value" id="botKpiActive">0</div><div class="delta">On the roster</div></div>
+          <div class="kpi" style="--accent:#B3204D"><div class="label">Underperforming</div><div class="value" id="botKpiUnder">0</div><div class="delta" id="botKpiUnderDelta">&mdash;</div></div>
+          <div class="kpi" style="--accent:var(--orange)"><div class="label">Overperforming</div><div class="value" id="botKpiOver">0</div><div class="delta" id="botKpiOverDelta">&mdash;</div></div>
+        </div>
+
+        <div class="table-wrap" style="margin-bottom:22px;"><div class="table-scroll">
+          <table>
+            <thead><tr><th>Bot</th><th>Bots existing</th><th>Processing time/rx</th><th>Eval window</th><th>Avg volume (weekly)</th><th id="sustainableHeader">Sustainable (24h)</th><th>Status</th></tr></thead>
+            <tbody id="botPerfBody"></tbody>
+          </table>
+        </div></div>
+
+        <div class="panel-head"><h2>Daily Volume Log</h2></div>
+        <div class="table-wrap"><div class="table-scroll">
+          <table>
+            <thead><tr><th>Date</th><th>Bot</th><th>Volume</th><th>Notes</th><th></th></tr></thead>
+            <tbody id="botLogBody"></tbody>
+          </table>
+        </div></div>
+      </div>
+
       <!-- ATTENDANCE -->
       <div class="view manager-only" id="view-attendance">
         <div class="panel-head"><h2>Attendance Points <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· 6-month rolling window, per policy</span></h2></div>
@@ -610,8 +654,8 @@
 
 <script>
 /* ---------------- storage ---------------- */
-const KEYS = { taskTemplates:'task-templates-data', dailyTasks:'daily-tasks-data', lunchLog:'lunch-log-data', staff:'staff-roster-data', attendance:'attendance-data', coachingNotes:'coaching-notes-data', settings:'app-settings-data', jobAids:'job-aids-data', tickets:'tickets-data' };
-let DB = { taskTemplates:[], dailyTasks:[], lunchLog:[], staff:[], attendance:[], coachingNotes:[], settings:{}, jobAids:[], tickets:[] };
+const KEYS = { taskTemplates:'task-templates-data', dailyTasks:'daily-tasks-data', lunchLog:'lunch-log-data', staff:'staff-roster-data', attendance:'attendance-data', coachingNotes:'coaching-notes-data', settings:'app-settings-data', jobAids:'job-aids-data', tickets:'tickets-data', bots:'bots-data', botLogs:'bot-logs-data' };
+let DB = { taskTemplates:[], dailyTasks:[], lunchLog:[], staff:[], attendance:[], coachingNotes:[], settings:{}, jobAids:[], tickets:[], bots:[], botLogs:[] };
 
 const DEFAULT_TASK_TEMPLATES = [
   'Review/ Dump CMM Shipped','Review/ Dump Arizona Shipped','NDP Bot Failed','Troubleshoot Bots',
@@ -752,7 +796,7 @@ function attachLiveSync(){
       const banner = document.getElementById('connectionBanner');
       if(banner) banner.style.display = 'none';
       refreshAgentSuggestions();
-      renderWeekGrid(); renderDailyTasks(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets();
+      renderWeekGrid(); renderDailyTasks(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets(); renderAutomation();
     }, err=>console.error('sync error', k, err));
   });
 }
@@ -764,6 +808,7 @@ const titles = {
   lunch:['Lunch','Clock out and back in, track lunch duration by staff'],
   jobaids:['Job Aids','Reference links for each recurring task'],
   tickets:['Tickets','Create a QA ticket number for tracking Slack threads'],
+  automation:['Automation','Bot volume and processing time audit'],
   attendance:['Attendance','Log daily attendance and spot patterns'],
   team:['Team','Agent breakdown, performance alerts, and coaching notes — filterable to one person']
 };
@@ -781,6 +826,7 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
     if(v==='lunch') renderLunch();
     if(v==='jobaids') renderJobAids();
     if(v==='tickets') renderTickets();
+    if(v==='automation') renderAutomation();
     if(v==='attendance') renderAttendance();
     if(v==='team') renderTeam();
   });
@@ -1516,6 +1562,7 @@ function openIdentityModal(){
     try{ localStorage.setItem('my-staff-name', name); }catch(e){}
     updateIdentityBar();
     syncLunchIdentityField();
+    refreshAutomationAccess();
     closeModal();
     renderWeekGrid();
     toast(`You're set as ${name}`);
@@ -1532,6 +1579,21 @@ function syncLunchIdentityField(){
   } else {
     input.readOnly = false;
     input.style.background = '';
+  }
+}
+
+function canAccessAutomation(){
+  if(appMode==='manager') return true;
+  const s = DB.staff.find(x=>x.name===currentStaffName);
+  return !!(s && s.automationAccess);
+}
+function refreshAutomationAccess(){
+  const allowed = canAccessAutomation();
+  const navBtn = document.getElementById('automationNavBtn');
+  if(navBtn) navBtn.style.display = allowed ? '' : 'none';
+  if(!allowed && document.getElementById('view-automation').classList.contains('active')){
+    // was viewing it, access just got pulled — bounce back to Daily Tasks
+    document.querySelector('.nav-btn[data-view="tasks"]').click();
   }
 }
 
@@ -1554,6 +1616,7 @@ function setMode(mode){
   updateIdentityBar();
   syncLunchIdentityField();
   renderWeekGrid();
+  refreshAutomationAccess();
   if(mode==='staff' && !currentStaffName){ openIdentityModal(); }
 }
 document.getElementById('managerSigninBtn').onclick = ()=>{
@@ -1577,6 +1640,7 @@ document.getElementById('resetIdentityBtn').onclick = async ()=>{
   try{ localStorage.removeItem('my-staff-name'); }catch(e){}
   updateIdentityBar();
   syncLunchIdentityField();
+  refreshAutomationAccess();
   toast('Device identity cleared');
 };
 const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri'];
@@ -1637,19 +1701,30 @@ function renderWeekGrid(){
 function escAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 function cellHTML(date, task, shift){
-  const entry = DB.dailyTasks.find(t=>t.date===date && t.task===task && t.shift===shift);
-  if(!entry){
+  const entries = DB.dailyTasks.filter(t=>t.date===date && t.task===task && t.shift===shift);
+  if(entries.length===0){
     if(appMode==='staff'){
       return `<div class="cell-btn empty-cell" style="cursor:default;">·</div>`;
     }
     return `<button class="cell-btn empty-cell" title="Add entry" data-date="${escAttr(date)}" data-task="${escAttr(task)}" data-shift="${escAttr(shift)}">+</button>`;
   }
+  if(entries.length>1){
+    const statuses = entries.map(e=>e.status);
+    const cls = statuses.includes('Not Started') ? 'cs-open' : statuses.includes('In Progress') ? 'cs-progress' : statuses.includes('Carryover') ? 'cs-carryover' : statuses.every(s=>s==='Completed') ? 'cs-done' : 'cs-na';
+    return `<button class="cell-btn" title="${escAttr(task+' · '+entries.length+' people working on this')}" data-multi="1" data-date="${escAttr(date)}" data-task="${escAttr(task)}" data-shift="${escAttr(shift)}">
+      <div class="cell-fill ${cls}">
+        <span class="who">👥 ${entries.length}</span>
+        <span class="st">Tap to view</span>
+      </div>
+    </button>`;
+  }
+  const entry = entries[0];
   const cls = entry.status==='Completed'?'cs-done':entry.status==='In Progress'?'cs-progress':entry.status==='N/A'?'cs-na':entry.status==='Carryover'?'cs-carryover':'cs-open';
   const shortStatus = entry.status==='In Progress'?'IP':entry.status==='Not Started'?'NS':entry.status==='Completed'?'Done':entry.status==='Carryover'?'C/O':'N/A';
   const who = entry.agent ? initialsOf(entry.agent) : shortStatus;
   const isOthers = appMode==='staff' && entry.agent && currentStaffName && entry.agent!==currentStaffName;
   const hint = appMode==='staff'
-    ? (isOthers ? `Assigned to ${entry.agent} — not yours` : entry.status==='Not Started' ? 'Tap to start' : entry.status==='In Progress' ? 'Tap to mark complete' : entry.status)
+    ? (isOthers ? `Assigned to ${entry.agent} — tap to view or join` : entry.status==='Not Started' ? 'Tap to start' : entry.status==='In Progress' ? 'Tap to mark complete' : entry.status)
     : entry.status;
   const volBits = [];
   if(entry.startVolume) volBits.push(`Start vol: ${entry.startVolume}`);
@@ -1779,14 +1854,77 @@ async function staffCycleStatus(id){
 document.getElementById('weekTable').addEventListener('click', (e)=>{
   const btn = e.target.closest('.cell-btn');
   if(!btn) return;
+  if(btn.dataset.multi){
+    openCellModal(btn.dataset.date, btn.dataset.task, btn.dataset.shift);
+    return;
+  }
   if(btn.dataset.entryId){
-    if(appMode==='manager') openGridCell(btn.dataset.entryId);
-    else staffCycleStatus(btn.dataset.entryId);
+    if(appMode==='manager'){ openGridCell(btn.dataset.entryId); return; }
+    const t = DB.dailyTasks.find(x=>x.id===btn.dataset.entryId);
+    if(t && t.agent && t.agent!==currentStaffName){
+      openCellModal(t.date, t.task, t.shift); // someone else's — view or join instead of a hard lock
+    } else {
+      staffCycleStatus(btn.dataset.entryId); // fast path: unclaimed or theirs
+    }
   }
   else if(btn.dataset.date && appMode==='manager'){
     openTaskEntryModal(null, { date:btn.dataset.date, task:btn.dataset.task, shift:btn.dataset.shift, agent:'', status:'Not Started', startedAt:'', completedAt:'', bestRx:'', portal:'', notes:'' });
   }
 });
+
+/* ---------------- multi-person cell modal ---------------- */
+function openCellModal(date, task, shift){
+  const entries = DB.dailyTasks.filter(t=>t.date===date && t.task===task && t.shift===shift);
+  const rows = entries.map(t=>{
+    const isMine = t.agent===currentStaffName;
+    const isUnclaimed = !t.agent;
+    const canAct = appMode==='staff' && (isMine || isUnclaimed) && (t.status==='Not Started'||t.status==='In Progress');
+    let actionBtn = '';
+    if(appMode==='manager'){
+      actionBtn = `<button class="btn btn-ghost btn-sm" onclick="closeModal();openTaskEntryModal(DB.dailyTasks.find(x=>x.id==='${t.id}'))">Edit</button>`;
+    } else if(canAct){
+      actionBtn = t.status==='Not Started'
+        ? `<button class="btn btn-primary btn-sm" onclick="closeModal();openStartPrompt('${t.id}', currentStaffName)">▶ Start</button>`
+        : `<button class="btn btn-primary btn-sm" style="background:#1f7a44;" onclick="closeModal();openStaffCompletePrompt('${t.id}')">✓ Complete</button>`;
+    }
+    return `<div class="card" style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+      <div>
+        <div style="font-weight:700;font-size:12.5px;color:${t.agent?staffColor(t.agent):'inherit'};">${t.agent||'Unclaimed'}</div>
+        <div style="margin-top:3px;">${taskStatusBadge(t.status)}</div>
+      </div>
+      ${actionBtn}
+    </div>`;
+  }).join('');
+
+  modalBody.innerHTML = `
+    <h3>${task} <span style="font-size:12px;color:rgba(46,3,38,0.55);font-weight:600;">· ${shift} · ${fmtDate(date)}</span></h3>
+    <div style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;margin-bottom:14px;">
+      ${rows || '<div class="empty">No one on this task yet.</div>'}
+    </div>
+    <div class="modal-actions" style="justify-content:${appMode==='staff'?'space-between':'flex-end'};">
+      ${appMode==='staff' ? `<button class="btn btn-primary btn-sm" id="joinTaskBtn">+ Join this task</button>` : `<button class="btn btn-primary btn-sm" id="addPersonBtn">+ Add another person</button>`}
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+    </div>`;
+  overlay.classList.add('active');
+
+  const joinBtn = document.getElementById('joinTaskBtn');
+  if(joinBtn) joinBtn.onclick = async ()=>{
+    if(!currentStaffName){ openIdentityModal(); return; }
+    const already = entries.find(t=>t.agent===currentStaffName);
+    if(already){ toast("You're already on this task"); closeModal(); return; }
+    const newRec = {id:uid(), date, task, shift, agent:'', status:'Not Started', startedBy:'', startedAt:'', completedBy:'', completedAt:'', processingHrs:'', bestRx:'', portal:'', notes:'', startPortalPages:'', startBestRxQueue:'', startVolume:'', feedbackNote:'', queueCleared:null, carryOverAmount:''};
+    DB.dailyTasks.push(newRec);
+    await saveOne('dailyTasks');
+    closeModal();
+    openStartPrompt(newRec.id, currentStaffName);
+  };
+  const addBtn = document.getElementById('addPersonBtn');
+  if(addBtn) addBtn.onclick = ()=>{
+    closeModal();
+    openTaskEntryModal(null, { date, task, shift, agent:'', status:'Not Started', startedAt:'', completedAt:'', bestRx:'', portal:'', notes:'' });
+  };
+}
+window.openCellModal = openCellModal;
 
 async function generateWeekChecklist(){
   const dates = weekDates();
@@ -2358,6 +2496,243 @@ async function deleteTicket(id){
 }
 window.deleteTicket = deleteTicket;
 
+/* ---------------- automation: bot volume & processing time audit ---------------- */
+let botPeriodHrs = 24;
+
+function botStatusClass(s){
+  if(s==='Performing') return 'b-ok';
+  if(s==='Underperforming') return 'b-spike';
+  if(s==='Overperforming') return 'st-inprogress';
+  return 'b-na';
+}
+
+function renderAutomation(){
+  const today = todayStr();
+  const weekStart = addDays(today, -6);
+  document.getElementById('sustainableHeader').textContent = `Sustainable (${botPeriodHrs}h)`;
+
+  const perfBody = document.getElementById('botPerfBody');
+  if(DB.bots.length===0){
+    perfBody.innerHTML = `<tr><td colspan="7"><div class="empty">No bots added yet. Click "Manage bots" to add your first one.</div></td></tr>`;
+    document.getElementById('botKpiVolume').textContent = 0;
+    document.getElementById('botKpiVolumeDelta').textContent = '—';
+    document.getElementById('botKpiActive').textContent = 0;
+    document.getElementById('botKpiUnder').textContent = 0;
+    document.getElementById('botKpiUnderDelta').textContent = '—';
+    document.getElementById('botKpiOver').textContent = 0;
+    document.getElementById('botKpiOverDelta').textContent = '—';
+    renderBotLog();
+    return;
+  }
+
+  const activeBots = DB.bots.filter(b=>b.active!==false);
+  document.getElementById('botKpiActive').textContent = activeBots.length;
+
+  const rows = DB.bots.map(bot=>{
+    const weekLogs = DB.botLogs.filter(l=>l.botId===bot.id && l.date>=weekStart && l.date<=today);
+    const avgVolume = weekLogs.length ? weekLogs.reduce((s,l)=>s+(parseFloat(l.volume)||0),0)/weekLogs.length : null;
+    const target = parseFloat(bot.targetTimeSec)||0;
+    const count = parseInt(bot.count)||1;
+    const evalHours = parseInt(bot.evalHours)||24;
+    const sustainable = target>0 ? Math.floor((botPeriodHrs*3600)/target)*count : null; // shown in table, follows the toggle
+    const sustainableAtEval = target>0 ? Math.floor((evalHours*3600)/target)*count : null; // used for status, always this bot's own window
+
+    let status = 'No data';
+    if(avgVolume!==null && sustainableAtEval>0){
+      const ratio = avgVolume / sustainableAtEval;
+      status = ratio < 0.85 ? 'Underperforming' : ratio > 1.15 ? 'Overperforming' : 'Performing';
+    }
+    return {bot, count, target, evalHours, avgVolume, sustainable, status};
+  });
+
+  const totalAvgVolume = rows.reduce((s,r)=>s+(r.avgVolume||0),0);
+  document.getElementById('botKpiVolume').textContent = Math.round(totalAvgVolume).toLocaleString();
+  document.getElementById('botKpiVolumeDelta').textContent = 'Sum of weekly averages';
+
+  const underRows = rows.filter(r=>r.status==='Underperforming');
+  const overRows = rows.filter(r=>r.status==='Overperforming');
+  document.getElementById('botKpiUnder').textContent = underRows.length;
+  document.getElementById('botKpiUnderDelta').textContent = underRows.length===0 ? 'All caught up' : `${underRows.length} bot${underRows.length>1?'s':''} below capacity`;
+  document.getElementById('botKpiOver').textContent = overRows.length;
+  document.getElementById('botKpiOverDelta').textContent = overRows.length===0 ? 'None running hot' : `${overRows.length} bot${overRows.length>1?'s':''} above capacity`;
+
+  perfBody.innerHTML = rows.sort((a,b)=>(b.status==='Underperforming')-(a.status==='Underperforming')).map(r=>`
+    <tr${r.status==='Underperforming'||r.status==='Overperforming'?' style="background:rgba(179,32,77,0.04);"':''}>
+      <td><b>${r.bot.name}</b></td>
+      <td>${r.count}</td>
+      <td>${r.target>0 ? fmtSecTime(r.target)+'/rx' : '—'}</td>
+      <td>${r.evalHours}h</td>
+      <td>${r.avgVolume!==null ? Math.round(r.avgVolume).toLocaleString() : '—'}</td>
+      <td>${r.sustainable!==null ? r.sustainable.toLocaleString() : '—'}</td>
+      <td><span class="badge ${botStatusClass(r.status)}">${r.status}</span></td>
+    </tr>`).join('');
+
+  renderBotLog();
+}
+
+function fmtSecTime(sec){
+  if(sec==null || isNaN(sec)) return '—';
+  if(sec<60) return sec.toFixed(1)+'s';
+  const m = Math.floor(sec/60), s = Math.round(sec%60);
+  return `${m}m ${s}s`;
+}
+
+function renderBotLog(){
+  const rows = [...DB.botLogs].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,100);
+  const body = document.getElementById('botLogBody');
+  if(rows.length===0){ body.innerHTML = `<tr><td colspan="5"><div class="empty">No volume logged yet.</div></td></tr>`; return; }
+  body.innerHTML = rows.map(l=>{
+    const bot = DB.bots.find(b=>b.id===l.botId);
+    return `<tr>
+      <td>${fmtDate(l.date)}</td>
+      <td>${bot?bot.name:'(deleted bot)'}</td>
+      <td>${l.volume}</td>
+      <td style="max-width:220px;white-space:normal;font-size:11.5px;">${l.notes||''}</td>
+      <td><button class="icon-btn" title="Delete" onclick="deleteBotLog('${l.id}')">✕</button></td>
+    </tr>`;
+  }).join('');
+}
+async function deleteBotLog(id){
+  if(!confirm('Delete this log entry?')) return;
+  DB.botLogs = DB.botLogs.filter(l=>l.id!==id);
+  await saveOne('botLogs'); renderAutomation(); toast('Deleted');
+}
+window.deleteBotLog = deleteBotLog;
+
+function openManageBotsModal(){
+  modalBody.innerHTML = `
+    <h3>Manage bots</h3>
+    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-6px 0 12px;">"Bots existing" is how many instances of that bot type are running — sustainable volume scales by this count.</p>
+    <div id="botListWrap" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;max-height:320px;overflow-y:auto;"></div>
+    <div class="form-grid">
+      <div class="field full"><label>New bot name</label><input type="text" id="f_newBot" placeholder="e.g. LDZ Bridge Bot"></div>
+    </div>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn btn-primary btn-sm" id="addBotBtn">+ Add bot</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+    </div>`;
+  const renderList = ()=>{
+    const wrap = document.getElementById('botListWrap');
+    if(DB.bots.length===0){ wrap.innerHTML = `<div class="empty" style="padding:16px;">No bots added yet.</div>`; return; }
+    wrap.innerHTML = DB.bots.map(b=>`
+      <div style="display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--beige);border-radius:8px;">
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input type="text" value="${escAttr(b.name)}" id="botname_${b.id}" style="flex:1;" placeholder="Bot name">
+          <button class="icon-btn" title="Save" onclick="saveBotRow('${b.id}')">✓</button>
+          <button class="icon-btn" title="Remove" onclick="removeBot('${b.id}')">✕</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;font-size:11px;color:rgba(46,3,38,0.6);">
+          <span>Bots existing:</span>
+          <input type="number" min="1" value="${b.count||1}" id="botcount_${b.id}" style="width:60px;">
+          <span>Processing time (sec/rx):</span>
+          <input type="number" min="0" step="0.1" value="${b.targetTimeSec||''}" id="bottarget_${b.id}" style="width:70px;">
+          <span>Eval window:</span>
+          <select id="botevalwin_${b.id}" style="width:70px;">
+            <option value="8" ${(''+b.evalHours)==='8'?'selected':''}>8h</option>
+            <option value="16" ${(''+b.evalHours)==='16'?'selected':''}>16h</option>
+            <option value="24" ${(!b.evalHours || (''+b.evalHours)==='24')?'selected':''}>24h</option>
+          </select>
+        </div>
+      </div>`).join('');
+  };
+  renderList();
+  window._renderBotList = renderList;
+  overlay.classList.add('active');
+  document.getElementById('addBotBtn').onclick = async ()=>{
+    const name = document.getElementById('f_newBot').value.trim();
+    if(!name){ toast('Enter a bot name'); return; }
+    DB.bots.push({id:uid(), name, count:1, targetTimeSec:'', evalHours:24, active:true});
+    await saveOne('bots');
+    document.getElementById('f_newBot').value='';
+    renderList();
+    renderAutomation();
+    toast('Bot added');
+  };
+}
+window.openManageBotsModal = openManageBotsModal;
+async function saveBotRow(id){
+  const b = DB.bots.find(x=>x.id===id); if(!b) return;
+  const name = document.getElementById('botname_'+id).value.trim();
+  if(!name){ toast('Bot name cannot be blank'); return; }
+  b.name = name;
+  b.count = parseInt(document.getElementById('botcount_'+id).value)||1;
+  b.targetTimeSec = document.getElementById('bottarget_'+id).value;
+  b.evalHours = parseInt(document.getElementById('botevalwin_'+id).value)||24;
+  await saveOne('bots');
+  renderAutomation();
+  toast('Saved');
+}
+window.saveBotRow = saveBotRow;
+async function removeBot(id){
+  if(!confirm('Remove this bot? Its past volume log entries stay, but it comes off the active roster.')) return;
+  DB.bots = DB.bots.filter(b=>b.id!==id);
+  await saveOne('bots');
+  if(window._renderBotList) window._renderBotList();
+  renderAutomation();
+  toast('Bot removed');
+}
+window.removeBot = removeBot;
+
+function openLogBotVolumeModal(){
+  if(DB.bots.length===0){
+    modalBody.innerHTML = `<h3>Log today's volume</h3><div class="empty" style="padding:20px 0;">Add a bot first — click "Manage bots".</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>`;
+    overlay.classList.add('active');
+    return;
+  }
+  const botOpts = DB.bots.map(b=>`<option value="${b.id}">${b.name}</option>`).join('');
+  modalBody.innerHTML = `
+    <h3>Log daily volume</h3>
+    <p style="font-size:11.5px;color:rgba(46,3,38,0.5);margin:-4px 0 10px;">One entry per bot per day — logging again for the same date updates that day's number instead of duplicating it.</p>
+    <div class="form-grid">
+      <div class="field full"><label>Bot</label><select id="f_botSelect">${botOpts}</select></div>
+      <div class="field"><label>Date</label><input type="date" id="f_botDate" value="${todayStr()}"></div>
+      <div class="field"><label>Volume processed</label><input type="number" min="0" id="f_botVolume" placeholder="e.g. 145"></div>
+      <div class="field full"><label>Notes</label><textarea id="f_botNotes" rows="2" placeholder="Anything worth flagging"></textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="saveBotLogBtn">Save</button>
+    </div>`;
+  overlay.classList.add('active');
+  document.getElementById('saveBotLogBtn').onclick = async ()=>{
+    const volume = document.getElementById('f_botVolume').value;
+    if(!volume){ toast('Enter a volume'); return; }
+    const botId = document.getElementById('f_botSelect').value;
+    const date = document.getElementById('f_botDate').value || todayStr();
+    const notes = document.getElementById('f_botNotes').value;
+    const existing = DB.botLogs.find(l=>l.botId===botId && l.date===date);
+    if(existing){
+      existing.volume = parseFloat(volume);
+      existing.notes = notes;
+    } else {
+      DB.botLogs.push({ id: uid(), botId, date, volume: parseFloat(volume), notes });
+    }
+    await saveOne('botLogs');
+    closeModal(); renderAutomation(); toast(existing ? "Updated today's entry" : 'Volume logged');
+  };
+}
+window.openLogBotVolumeModal = openLogBotVolumeModal;
+['botPeriod8','botPeriod16','botPeriod24'].forEach(id=>{
+  document.getElementById(id).onclick = ()=>{
+    ['botPeriod8','botPeriod16','botPeriod24'].forEach(x=>document.getElementById(x).classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    botPeriodHrs = parseInt(document.getElementById(id).dataset.hrs);
+    renderAutomation();
+  };
+});
+document.getElementById('manageBotsBtn').onclick = ()=>openManageBotsModal();
+document.getElementById('logBotVolumeBtn').onclick = ()=>openLogBotVolumeModal();
+document.getElementById('exportBotLogs').onclick = ()=>{
+  const csv = toCSV(DB.botLogs, [
+    {label:'Date', get:r=>r.date},
+    {label:'Bot', get:r=>{ const b=DB.bots.find(x=>x.id===r.botId); return b?b.name:'(deleted bot)'; }},
+    {label:'Volume', get:r=>r.volume},
+    {label:'Notes', get:r=>r.notes}
+  ]);
+  downloadCSV(csv, 'gifthealth_bot_volume_log.csv'); toast('CSV downloaded');
+};
+
+
 
 /* ---------------- staff roster ---------------- */
 function openManageStaffModal(){
@@ -2403,6 +2778,10 @@ function openManageStaffModal(){
           <input type="time" value="${s.schedStart||''}" id="schedstart_${s.id}" style="flex:1;">
           <span>to</span>
           <input type="time" value="${s.schedEnd||''}" id="schedend_${s.id}" style="flex:1;">
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;font-size:11px;color:rgba(46,3,38,0.6);">
+          <input type="checkbox" id="botaccess_${s.id}" ${s.automationAccess?'checked':''} style="width:auto;">
+          <label for="botaccess_${s.id}" style="margin:0;">Can access Automation tab (without full manager access)</label>
         </div>
       </div>`).join('');
   };
@@ -2461,9 +2840,11 @@ async function renameStaff(id){
   s.name = newName;
   s.schedStart = document.getElementById('schedstart_'+id).value;
   s.schedEnd = document.getElementById('schedend_'+id).value;
+  s.automationAccess = document.getElementById('botaccess_'+id).checked;
   await saveOne('staff');
   refreshAgentSuggestions();
   renderTeam();
+  refreshAutomationAccess();
   toast('Saved — note past logged tasks keep the old name');
 }
 window.renameStaff = renameStaff;
@@ -2533,7 +2914,7 @@ async function mergeStaffNames(fromName, toName){
 
   await saveAll();
   refreshAgentSuggestions();
-  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets();
+  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets(); renderAutomation();
   toast(`Merged "${fromName}" into "${toName}"`);
 }
 window.mergeStaffNames = mergeStaffNames;
@@ -3178,7 +3559,7 @@ document.getElementById('resetBtn').onclick = async ()=>{
   DB.attendance = [];
   DB.coachingNotes = [];
   await saveAll();
-  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets(); refreshAgentSuggestions();
+  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets(); renderAutomation(); refreshAgentSuggestions();
   toast('Test data cleared');
 };
 
@@ -3205,6 +3586,7 @@ document.getElementById('resetBtn').onclick = async ()=>{
     renderTeam();
     renderJobAids();
     renderTickets();
+    renderAutomation();
   }catch(e){
     console.error(e);
     document.getElementById('content').innerHTML = '<div class="empty">Could not load data. Please refresh.</div>';
