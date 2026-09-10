@@ -352,6 +352,7 @@
             <button class="btn btn-ghost btn-sm manager-only" id="manageStaffBtn">Manage staff</button>
             <button class="btn btn-ghost btn-sm manager-only" id="exportTasks">Export CSV</button>
             <button class="btn btn-ghost btn-sm manager-only" id="startNewWeekBtn" style="color:#B3204D;border-color:rgba(179,32,77,0.25);">Start new week</button>
+            <button class="btn btn-ghost btn-sm manager-only" id="helpRequestsBtn">🙋 Help requests <span id="helpRequestsBadge" style="display:none;background:#B3204D;color:#fff;border-radius:999px;padding:1px 6px;font-size:10px;margin-left:3px;">0</span></button>
             <button class="btn btn-ghost btn-sm manager-only" id="resetIdentityBtn">Reset this device's identity</button>
             <button class="btn btn-primary btn-sm manager-only" id="addTaskEntryBtn">+ Add entry</button>
           </div>
@@ -667,8 +668,8 @@
 
 <script>
 /* ---------------- storage ---------------- */
-const KEYS = { taskTemplates:'task-templates-data', dailyTasks:'daily-tasks-data', lunchLog:'lunch-log-data', staff:'staff-roster-data', attendance:'attendance-data', coachingNotes:'coaching-notes-data', settings:'app-settings-data', jobAids:'job-aids-data', tickets:'tickets-data', bots:'bots-data', botLogs:'bot-logs-data' };
-let DB = { taskTemplates:[], dailyTasks:[], lunchLog:[], staff:[], attendance:[], coachingNotes:[], settings:{}, jobAids:[], tickets:[], bots:[], botLogs:[] };
+const KEYS = { taskTemplates:'task-templates-data', dailyTasks:'daily-tasks-data', lunchLog:'lunch-log-data', staff:'staff-roster-data', attendance:'attendance-data', coachingNotes:'coaching-notes-data', settings:'app-settings-data', jobAids:'job-aids-data', tickets:'tickets-data', bots:'bots-data', botLogs:'bot-logs-data', helpRequests:'help-requests-data' };
+let DB = { taskTemplates:[], dailyTasks:[], lunchLog:[], staff:[], attendance:[], coachingNotes:[], settings:{}, jobAids:[], tickets:[], bots:[], botLogs:[], helpRequests:[] };
 
 const DEFAULT_TASK_TEMPLATES = [
   'Review/ Dump CMM Shipped','Review/ Dump Arizona Shipped','NDP Bot Failed','Troubleshoot Bots',
@@ -809,7 +810,7 @@ function attachLiveSync(){
       const banner = document.getElementById('connectionBanner');
       if(banner) banner.style.display = 'none';
       refreshAgentSuggestions();
-      renderWeekGrid(); renderDailyTasks(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets(); renderAutomation();
+      renderWeekGrid(); renderDailyTasks(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets(); renderAutomation(); updateHelpRequestsBadge();
     }, err=>console.error('sync error', k, err));
   });
 }
@@ -1872,7 +1873,11 @@ document.getElementById('weekTable').addEventListener('click', (e)=>{
     return;
   }
   if(btn.dataset.entryId){
-    if(appMode==='manager'){ openGridCell(btn.dataset.entryId); return; }
+    if(appMode==='manager'){
+      const t = DB.dailyTasks.find(x=>x.id===btn.dataset.entryId);
+      if(t) openCellModal(t.date, t.task, t.shift);
+      return;
+    }
     const t = DB.dailyTasks.find(x=>x.id===btn.dataset.entryId);
     if(t && t.agent && t.agent!==currentStaffName){
       openCellModal(t.date, t.task, t.shift); // someone else's — view or join instead of a hard lock
@@ -1894,7 +1899,10 @@ function openCellModal(date, task, shift){
     const canAct = appMode==='staff' && (isMine || isUnclaimed) && (t.status==='Not Started'||t.status==='In Progress');
     let actionBtn = '';
     if(appMode==='manager'){
-      actionBtn = `<button class="btn btn-ghost btn-sm" onclick="closeModal();openTaskEntryModal(DB.dailyTasks.find(x=>x.id==='${t.id}'))">Edit</button>`;
+      actionBtn = `<div style="display:flex;gap:4px;">
+        <button class="btn btn-ghost btn-sm" onclick="closeModal();openTaskEntryModal(DB.dailyTasks.find(x=>x.id==='${t.id}'))">Edit</button>
+        <button class="btn btn-ghost btn-sm" style="color:#B3204D;" onclick="closeModal();deleteTask('${t.id}')">Delete</button>
+      </div>`;
     } else if(canAct){
       actionBtn = t.status==='Not Started'
         ? `<button class="btn btn-primary btn-sm" onclick="closeModal();openStartPrompt('${t.id}', currentStaffName)">▶ Start</button>`
@@ -1909,13 +1917,15 @@ function openCellModal(date, task, shift){
     </div>`;
   }).join('');
 
+  const allDone = entries.length>0 && entries.every(t=>t.status==='Completed');
   modalBody.innerHTML = `
     <h3>${task} <span style="font-size:12px;color:rgba(46,3,38,0.55);font-weight:600;">· ${shift} · ${fmtDate(date)}</span></h3>
     <div style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;margin-bottom:14px;">
       ${rows || '<div class="empty">No one on this task yet.</div>'}
     </div>
+    ${allDone && appMode==='staff' ? '<p style="font-size:11.5px;color:rgba(46,3,38,0.5);margin:0 0 10px;">This task is already completed for today — no help needed.</p>' : ''}
     <div class="modal-actions" style="justify-content:${appMode==='staff'?'space-between':'flex-end'};">
-      ${appMode==='staff' ? `<button class="btn btn-primary btn-sm" id="joinTaskBtn">+ Join this task</button>` : `<button class="btn btn-primary btn-sm" id="addPersonBtn">+ Add another person</button>`}
+      ${appMode==='staff' ? (allDone ? '' : `<button class="btn btn-primary btn-sm" id="joinTaskBtn">🙋 Request to help</button>`) : `<button class="btn btn-primary btn-sm" id="addPersonBtn">+ Add another person</button>`}
       <button class="btn btn-ghost" onclick="closeModal()">Close</button>
     </div>`;
   overlay.classList.add('active');
@@ -1925,11 +1935,12 @@ function openCellModal(date, task, shift){
     if(!currentStaffName){ openIdentityModal(); return; }
     const already = entries.find(t=>t.agent===currentStaffName);
     if(already){ toast("You're already on this task"); closeModal(); return; }
-    const newRec = {id:uid(), date, task, shift, agent:'', status:'Not Started', startedBy:'', startedAt:'', completedBy:'', completedAt:'', processingHrs:'', bestRx:'', portal:'', notes:'', startPortalPages:'', startBestRxQueue:'', startVolume:'', feedbackNote:'', queueCleared:null, carryOverAmount:''};
-    DB.dailyTasks.push(newRec);
-    await saveOne('dailyTasks');
+    const pending = DB.helpRequests.find(r=>r.date===date && r.task===task && r.shift===shift && r.requestedBy===currentStaffName && r.status==='Pending');
+    if(pending){ toast('You already have a pending request for this — waiting on your manager'); closeModal(); return; }
+    DB.helpRequests.push({id:uid(), date, task, shift, requestedBy:currentStaffName, status:'Pending', requestedAt:nowLocalInput(), respondedAt:'', respondedBy:''});
+    await saveOne('helpRequests');
     closeModal();
-    openStartPrompt(newRec.id, currentStaffName);
+    toast('Request sent — waiting on your manager to approve it');
   };
   const addBtn = document.getElementById('addPersonBtn');
   if(addBtn) addBtn.onclick = ()=>{
@@ -1967,6 +1978,58 @@ async function startNewWeek(){
   renderWeekGrid(); renderDailyTasks(); renderDashboard();
   toast(`Cleared ${before-DB.dailyTasks.length} entries for ${label}`);
 }
+
+/* ---------------- help requests ---------------- */
+function updateHelpRequestsBadge(){
+  const badge = document.getElementById('helpRequestsBadge');
+  if(!badge) return;
+  const pending = DB.helpRequests.filter(r=>r.status==='Pending').length;
+  badge.style.display = pending>0 ? '' : 'none';
+  badge.textContent = pending;
+}
+
+function openHelpRequestsModal(){
+  const pending = DB.helpRequests.filter(r=>r.status==='Pending').sort((a,b)=>a.requestedAt.localeCompare(b.requestedAt));
+  const rows = pending.map(r=>`
+    <div class="card" style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+      <div>
+        <div style="font-weight:700;font-size:12.5px;">${r.requestedBy}</div>
+        <div style="font-size:11.5px;color:rgba(46,3,38,0.6);margin-top:2px;">wants to help with <b>${r.task}</b> (${r.shift}, ${fmtDate(r.date)})</div>
+        <div style="font-size:10.5px;color:rgba(46,3,38,0.45);margin-top:2px;">Requested ${fmtDT(r.requestedAt)}</div>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-primary btn-sm" style="background:#1f7a44;" onclick="respondToHelpRequest('${r.id}', true)">Approve</button>
+        <button class="btn btn-ghost btn-sm" onclick="respondToHelpRequest('${r.id}', false)">Deny</button>
+      </div>
+    </div>`).join('');
+  modalBody.innerHTML = `
+    <h3>Help requests</h3>
+    <div style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;">
+      ${rows || '<div class="empty">No pending requests.</div>'}
+    </div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>`;
+  overlay.classList.add('active');
+}
+window.openHelpRequestsModal = openHelpRequestsModal;
+
+async function respondToHelpRequest(id, approve){
+  const r = DB.helpRequests.find(x=>x.id===id); if(!r) return;
+  r.status = approve ? 'Approved' : 'Denied';
+  r.respondedAt = nowLocalInput();
+  if(approve){
+    const existing = DB.dailyTasks.find(t=>t.date===r.date && t.task===r.task && t.shift===r.shift && t.agent===r.requestedBy);
+    if(!existing){
+      DB.dailyTasks.push({id:uid(), date:r.date, task:r.task, shift:r.shift, agent:r.requestedBy, status:'Not Started', startedBy:'', startedAt:'', completedBy:'', completedAt:'', processingHrs:'', bestRx:'', portal:'', notes:'', startPortalPages:'', startBestRxQueue:'', startVolume:'', feedbackNote:'', queueCleared:null, carryOverAmount:''});
+      await saveOne('dailyTasks');
+    }
+  }
+  await saveOne('helpRequests');
+  renderWeekGrid(); renderDailyTasks(); updateHelpRequestsBadge();
+  openHelpRequestsModal(); // refresh the list in place
+  toast(approve ? `Approved — ${r.requestedBy} can now start it` : 'Request denied');
+}
+window.respondToHelpRequest = respondToHelpRequest;
+document.getElementById('helpRequestsBtn').onclick = ()=>openHelpRequestsModal();
 
 
 async function startTask(id){
@@ -2036,8 +2099,12 @@ function openCompleteModal(id){
 window.openCompleteModal = openCompleteModal;
 
 function openTaskEntryModal(existing, prefill){
-  const t = existing || prefill || {id:null, date:document.getElementById('taskDateFilter').value||todayStr(), task:DB.taskTemplates[0]?.name||'', shift:'AM', agent:'', status:'Not Started', startedAt:'', completedAt:'', bestRx:'', portal:'', notes:'', startPortalPages:'', startBestRxQueue:'', carryOverAmount:'', queueCleared:null, feedbackNote:''};
+  const defaultShift = new Date().getHours() < 12 ? 'AM' : 'PM';
+  const t = existing || prefill || {id:null, date:document.getElementById('taskDateFilter').value||todayStr(), task:DB.taskTemplates[0]?.name||'', shift:defaultShift, agent:'', status:'Not Started', startedAt:'', completedAt:'', bestRx:'', portal:'', notes:'', startPortalPages:'', startBestRxQueue:'', carryOverAmount:'', queueCleared:null, feedbackNote:''};
   const taskOptions = DB.taskTemplates.map(tt=>`<option value="${tt.name}" ${tt.name===t.task?'selected':''}>${tt.name}</option>`).join('');
+  const rosterNames = DB.staff.map(s=>s.name);
+  if(t.agent && !rosterNames.includes(t.agent)) rosterNames.push(t.agent); // keep legacy/free-text names selectable
+  const agentOptions = `<option value="">— Unassigned —</option>` + rosterNames.map(n=>`<option value="${escAttr(n)}" ${n===t.agent?'selected':''}>${n}</option>`).join('');
   const cleared = t.queueCleared!==false;
   modalBody.innerHTML = `
     <h3>${existing?'Edit task entry':'Add task entry'}</h3>
@@ -2045,7 +2112,7 @@ function openTaskEntryModal(existing, prefill){
       <div class="field"><label>Date</label><input type="date" id="f_date" value="${t.date}"></div>
       <div class="field"><label>Shift</label><select id="f_shift"><option ${t.shift==='AM'?'selected':''}>AM</option><option ${t.shift==='PM'?'selected':''}>PM</option><option ${t.shift==='N/A'?'selected':''}>N/A</option></select></div>
       <div class="field full"><label>Task</label><select id="f_task">${taskOptions}</select></div>
-      <div class="field"><label>Agent</label><input type="text" id="f_agent" value="${t.agent}" list="agentSuggestions"></div>
+      <div class="field"><label>Agent</label><select id="f_agent">${agentOptions}</select></div>
       <div class="field full" id="copyToPmWrap" style="display:${(t.shift==='AM')?'':'none'};align-items:center;gap:8px;">
         <input type="checkbox" id="f_copyToPm" ${!existing?'checked':''} style="width:auto;">
         <label style="margin:0;">Also assign this person to the PM shift of this task today</label>
@@ -2680,6 +2747,7 @@ function openManageBotsModal(){
     document.getElementById('f_newBot').value='';
     renderList();
     renderAutomation();
+    updateHelpRequestsBadge();
     toast('Bot added');
   };
 }
@@ -2752,6 +2820,7 @@ window.openLogBotVolumeModal = openLogBotVolumeModal;
     document.getElementById(id).classList.add('active');
     botPeriodHrs = parseInt(document.getElementById(id).dataset.hrs);
     renderAutomation();
+    updateHelpRequestsBadge();
   };
 });
 document.getElementById('manageBotsBtn').onclick = ()=>openManageBotsModal();
@@ -2948,7 +3017,7 @@ async function mergeStaffNames(fromName, toName){
 
   await saveAll();
   refreshAgentSuggestions();
-  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets(); renderAutomation();
+  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets(); renderAutomation(); updateHelpRequestsBadge();
   toast(`Merged "${fromName}" into "${toName}"`);
 }
 window.mergeStaffNames = mergeStaffNames;
@@ -3621,7 +3690,7 @@ document.getElementById('resetBtn').onclick = async ()=>{
   DB.attendance = [];
   DB.coachingNotes = [];
   await saveAll();
-  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets(); renderAutomation(); refreshAgentSuggestions();
+  renderDailyTasks(); renderWeekGrid(); renderDashboard(); renderLunch(); renderAttendance(); renderTeam(); renderJobAids(); renderTickets(); renderAutomation(); refreshAgentSuggestions(); updateHelpRequestsBadge();
   toast('Test data cleared');
 };
 
@@ -3649,6 +3718,7 @@ document.getElementById('resetBtn').onclick = async ()=>{
     renderJobAids();
     renderTickets();
     renderAutomation();
+    updateHelpRequestsBadge();
   }catch(e){
     console.error(e);
     document.getElementById('content').innerHTML = '<div class="empty">Could not load data. Please refresh.</div>';
