@@ -528,6 +528,7 @@
             </div>
             <button class="btn btn-ghost btn-sm" id="logPtoBtn">+ Log PTO</button>
             <button class="btn btn-ghost btn-sm" id="logCallOffBtn">+ Log Call-Off</button>
+            <button class="btn btn-ghost btn-sm" id="logHolidayBtn">+ Log Holiday</button>
             <button class="btn btn-ghost btn-sm" id="batchAttendanceBtn">📋 Batch add (week)</button>
             <button class="btn btn-primary btn-sm" id="addAttendanceBtn">+ Log entry</button>
           </div>
@@ -1251,7 +1252,7 @@ function openAttendanceModal(existing, prefill){
     overlay.classList.add('active');
     return;
   }
-  const excuseOptions = ['PTO with prior approval','Approved protected leave (FMLA/ADA/sick)',"Workers' compensation leave",'Jury duty','Bereavement leave','Other legally protected absence','One on One (addressed directly)','Manager discretion'];
+  const excuseOptions = ['Holiday','PTO with prior approval','Approved protected leave (FMLA/ADA/sick)',"Workers' compensation leave",'Jury duty','Bereavement leave','Other legally protected absence','One on One (addressed directly)','Manager discretion'];
   const staffOpts = DB.staff.map(s=>s.name).sort().map(n=>`<option value="${escAttr(n)}" ${n===a.staff?'selected':''}>${n}</option>`).join('');
   const hasOverride = existing ? (existing.scheduleOverride || false) : false;
 
@@ -1418,13 +1419,19 @@ document.getElementById('logCallOffBtn').onclick = ()=>openAttendanceModal(null,
   violationType:'Absence', notifiedProperly:'Yes', excused:false, excuseReason:'',
   notes:'', _title:'Log Call-Off (Notified in Advance)'
 });
+document.getElementById('logHolidayBtn').onclick = ()=>openAttendanceModal(null, {
+  id:null, date:document.getElementById('attendanceDateFilter').value||todayStr(), staff:'',
+  schedStart:'', schedEnd:'', scheduleOverride:false, clockIn:'', clockOut:'',
+  violationType:'Absence', notifiedProperly:'N/A', excused:true, excuseReason:'Holiday',
+  notes:'', _title:'Log Holiday'
+});
 
 /* ---------------- batch attendance entry (one employee, one week, clock in/out per day) ---------------- */
 let batchWeekStart = getMonday(todayStr());
 function batchWeekDates(){ return [0,1,2,3,4,5,6].map(i=>addDays(batchWeekStart,i)); }
 const BATCH_DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const BATCH_VIOLATIONS = ['— Skip —','On Time','Tardy ≤15 min','Tardy >15 min','Early Departure','Absence','No-Call/No-Show'];
-const EXCUSE_OPTIONS_BATCH = ['PTO with prior approval','Approved protected leave (FMLA/ADA/sick)',"Workers' compensation leave",'Jury duty','Bereavement leave','Other legally protected absence','One on One (addressed directly)','Manager discretion'];
+const EXCUSE_OPTIONS_BATCH = ['Holiday','PTO with prior approval','Approved protected leave (FMLA/ADA/sick)',"Workers' compensation leave",'Jury duty','Bereavement leave','Other legally protected absence','One on One (addressed directly)','Manager discretion'];
 
 function openBatchAttendanceModal(){
   if(DB.staff.length===0){
