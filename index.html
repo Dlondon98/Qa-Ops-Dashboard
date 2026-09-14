@@ -476,6 +476,12 @@
         <div class="panel-head">
           <h2>Automation</h2>
           <div class="filters">
+            <div class="view-toggle" id="botProgramToggle">
+              <button class="active" data-program="">All</button>
+              <button data-program="IDP">IDP</button>
+              <button data-program="NDP">NDP</button>
+              <button data-program="LDZ">LDZ</button>
+            </div>
             <div class="view-toggle" id="botPeriodToggle">
               <button id="botPeriod8" data-hrs="8">8h</button>
               <button id="botPeriod16" data-hrs="16">16h</button>
@@ -483,10 +489,11 @@
             </div>
             <button class="btn btn-ghost btn-sm" id="manageBotsBtn">Manage bots</button>
             <button class="btn btn-ghost btn-sm" id="exportBotLogs">Export CSV</button>
+            <button class="btn btn-ghost btn-sm" id="batchLogBotVolumeBtn">📋 Batch log volume</button>
             <button class="btn btn-primary btn-sm" id="logBotVolumeBtn">+ Log today's volume</button>
           </div>
         </div>
-        <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-10px 0 16px;">Enter each bot's volume once a day — the average updates as a trailing 7-day (weekly) average. Each bot's status is judged against its own eval window (set in Manage bots) — the 8h/16h/24h toggle above just changes what the "Sustainable" column shows for planning, it doesn't affect status.</p>
+        <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-10px 0 16px;">Enter each bot's volume once a day — the average updates as a trailing 7-day (weekly) average. Each bot's status is judged against its own eval window (set in Manage bots) — the 8h/16h/24h toggle above just changes what the "Sustainable" column shows for planning, it doesn't affect status. Use the All/IDP/NDP/LDZ toggle to filter everything below to one program.</p>
 
         <div class="kpi-grid" style="margin-bottom:18px;">
           <div class="kpi" style="--accent:var(--purple)"><div class="label">Total avg. weekly volume</div><div class="value" id="botKpiVolume">0</div><div class="delta" id="botKpiVolumeDelta">&mdash;</div></div>
@@ -885,6 +892,16 @@ setInterval(tickLiveClock, 1000);
 /* ---------------- end-of-shift carryover reminder ---------------- */
 let endOfShiftPromptShownFor = null; // 'date|staffName' once shown, don't re-trigger same day
 /* ---------------- noon AM → PM carryover ---------------- */
+function isWeekendDate(dateStr){
+  const day = new Date(dateStr+'T00:00:00').getDay();
+  return day===0 || day===6; // Sun or Sat
+}
+function previousWorkday(dateStr){
+  let d = new Date(dateStr+'T00:00:00');
+  do{ d.setDate(d.getDate()-1); } while(d.getDay()===0 || d.getDay()===6);
+  return d.toISOString().slice(0,10);
+}
+
 function isPastNoonFor(dateStr){
   const now = new Date();
   const noonForDate = new Date(dateStr+'T12:00:00');
@@ -2758,6 +2775,7 @@ window.deleteTicket = deleteTicket;
 
 /* ---------------- automation: bot volume & processing time audit ---------------- */
 let botPeriodHrs = 24;
+let botProgramFilter = '';
 
 function botStatusClass(s){
   if(s==='Performing') return 'b-ok';
@@ -2785,10 +2803,24 @@ function renderAutomation(){
     return;
   }
 
-  const activeBots = DB.bots.filter(b=>b.active!==false);
+  const filteredBots = DB.bots.filter(b=> !botProgramFilter || b.program===botProgramFilter );
+  if(filteredBots.length===0){
+    perfBody.innerHTML = `<tr><td colspan="7"><div class="empty">No bots tagged ${botProgramFilter} yet. Assign a program to a bot in "Manage bots".</div></td></tr>`;
+    document.getElementById('botKpiVolume').textContent = 0;
+    document.getElementById('botKpiVolumeDelta').textContent = '—';
+    document.getElementById('botKpiActive').textContent = 0;
+    document.getElementById('botKpiUnder').textContent = 0;
+    document.getElementById('botKpiUnderDelta').textContent = '—';
+    document.getElementById('botKpiOver').textContent = 0;
+    document.getElementById('botKpiOverDelta').textContent = '—';
+    renderBotLog();
+    return;
+  }
+
+  const activeBots = filteredBots.filter(b=>b.active!==false);
   document.getElementById('botKpiActive').textContent = activeBots.length;
 
-  const rows = DB.bots.map(bot=>{
+  const rows = filteredBots.map(bot=>{
     const weekLogs = DB.botLogs.filter(l=>l.botId===bot.id && l.date>=weekStart && l.date<=today);
     const avgVolume = weekLogs.length ? weekLogs.reduce((s,l)=>s+(parseFloat(l.volume)||0),0)/weekLogs.length : null;
     const target = parseFloat(bot.targetTimeSec)||0;
@@ -2818,7 +2850,7 @@ function renderAutomation(){
 
   perfBody.innerHTML = rows.sort((a,b)=>(b.status==='Underperforming')-(a.status==='Underperforming')).map(r=>`
     <tr${r.status==='Underperforming'||r.status==='Overperforming'?' style="background:rgba(179,32,77,0.04);"':''}>
-      <td><b>${r.bot.name}</b></td>
+      <td><b>${r.bot.name}</b>${r.bot.program?` <span class="badge b-na" style="margin-left:4px;">${r.bot.program}</span>`:''}</td>
       <td>${r.count}</td>
       <td>${r.target>0 ? fmtSecTime(r.target)+'/rx' : '—'}</td>
       <td>${r.evalHours}h</td>
@@ -2838,7 +2870,11 @@ function fmtSecTime(sec){
 }
 
 function renderBotLog(){
-  const rows = [...DB.botLogs].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,100);
+  const rows = [...DB.botLogs].filter(l=>{
+    if(!botProgramFilter) return true;
+    const bot = DB.bots.find(b=>b.id===l.botId);
+    return bot && bot.program===botProgramFilter;
+  }).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,100);
   const body = document.getElementById('botLogBody');
   if(rows.length===0){ body.innerHTML = `<tr><td colspan="5"><div class="empty">No volume logged yet.</div></td></tr>`; return; }
   body.innerHTML = rows.map(l=>{
@@ -2862,7 +2898,7 @@ window.deleteBotLog = deleteBotLog;
 function openManageBotsModal(){
   modalBody.innerHTML = `
     <h3>Manage bots</h3>
-    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-6px 0 12px;">"Bots existing" is how many instances of that bot type are running — sustainable volume scales by this count.</p>
+    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-6px 0 12px;">"Bots existing" is how many instances of that bot type are running — sustainable volume scales by this count. Tag each bot with a program (IDP/NDP/LDZ) so you can filter the Automation view by program.</p>
     <div id="botListWrap" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;max-height:320px;overflow-y:auto;"></div>
     <div class="form-grid">
       <div class="field full"><label>New bot name</label><input type="text" id="f_newBot" placeholder="e.g. LDZ Bridge Bot"></div>
@@ -2893,6 +2929,15 @@ function openManageBotsModal(){
             <option value="24" ${(!b.evalHours || (''+b.evalHours)==='24')?'selected':''}>24h</option>
           </select>
         </div>
+        <div style="display:flex;gap:8px;align-items:center;font-size:11px;color:rgba(46,3,38,0.6);">
+          <span>Program:</span>
+          <select id="botprogram_${b.id}" style="width:80px;">
+            <option value="" ${!b.program?'selected':''}>—</option>
+            <option value="IDP" ${b.program==='IDP'?'selected':''}>IDP</option>
+            <option value="NDP" ${b.program==='NDP'?'selected':''}>NDP</option>
+            <option value="LDZ" ${b.program==='LDZ'?'selected':''}>LDZ</option>
+          </select>
+        </div>
       </div>`).join('');
   };
   renderList();
@@ -2901,7 +2946,7 @@ function openManageBotsModal(){
   document.getElementById('addBotBtn').onclick = async ()=>{
     const name = document.getElementById('f_newBot').value.trim();
     if(!name){ toast('Enter a bot name'); return; }
-    DB.bots.push({id:uid(), name, count:1, targetTimeSec:'', evalHours:24, active:true});
+    DB.bots.push({id:uid(), name, count:1, targetTimeSec:'', evalHours:24, active:true, program:''});
     await saveOne('bots');
     document.getElementById('f_newBot').value='';
     renderList();
@@ -2919,6 +2964,7 @@ async function saveBotRow(id){
   b.count = parseInt(document.getElementById('botcount_'+id).value)||1;
   b.targetTimeSec = document.getElementById('bottarget_'+id).value;
   b.evalHours = parseInt(document.getElementById('botevalwin_'+id).value)||24;
+  b.program = document.getElementById('botprogram_'+id).value;
   await saveOne('bots');
   renderAutomation();
   toast('Saved');
@@ -2973,6 +3019,73 @@ function openLogBotVolumeModal(){
   };
 }
 window.openLogBotVolumeModal = openLogBotVolumeModal;
+
+function openBatchLogBotVolumeModal(){
+  const bots = DB.bots.filter(b=> b.active!==false && (!botProgramFilter || b.program===botProgramFilter));
+  if(bots.length===0){
+    modalBody.innerHTML = `<h3>Batch log volume</h3><div class="empty" style="padding:20px 0;">No bots to log${botProgramFilter?` for ${botProgramFilter}`:''}. Add bots via "Manage bots" first.</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>`;
+    overlay.classList.add('active');
+    return;
+  }
+  modalBody.innerHTML = `
+    <h3>Batch log volume${botProgramFilter?` — ${botProgramFilter}`:''}</h3>
+    <p style="font-size:11.5px;color:rgba(46,3,38,0.5);margin:-4px 0 10px;">One date, all bots at once. Leave a bot blank to skip it. Logging again for the same date updates that bot's entry instead of duplicating it.</p>
+    <div class="form-grid" style="margin-bottom:10px;">
+      <div class="field full"><label>Date</label><input type="date" id="f_batchBotDate" value="${todayStr()}"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;max-height:360px;overflow-y:auto;">
+      ${bots.map(b=>{
+        const existingLog = DB.botLogs.find(l=>l.botId===b.id && l.date===todayStr());
+        return `<div class="card" style="padding:10px 12px;" data-bot-row data-bot-id="${b.id}">
+          <b style="font-size:12.5px;">${b.name}${b.program?` <span class="badge b-na" style="margin-left:4px;">${b.program}</span>`:''}</b>
+          <div class="form-grid" style="margin-top:6px;">
+            <div class="field"><label>Volume</label><input type="number" min="0" class="batchbot-volume" data-bot-id="${b.id}" value="${existingLog?existingLog.volume:''}" placeholder="e.g. 145"></div>
+            <div class="field"><label>Notes</label><input type="text" class="batchbot-notes" data-bot-id="${b.id}" value="${escAttr(existingLog&&existingLog.notes?existingLog.notes:'')}" placeholder="optional"></div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="saveBatchBotVolumeBtn">Save all</button>
+    </div>`;
+  overlay.classList.add('active');
+  document.getElementById('saveBatchBotVolumeBtn').onclick = async ()=>{
+    const date = document.getElementById('f_batchBotDate').value || todayStr();
+    let saved = 0;
+    document.querySelectorAll('[data-bot-row]').forEach(row=>{
+      const botId = row.dataset.botId;
+      const volInput = row.querySelector('.batchbot-volume');
+      const notesInput = row.querySelector('.batchbot-notes');
+      if(!volInput.value) return;
+      const existing = DB.botLogs.find(l=>l.botId===botId && l.date===date);
+      if(existing){
+        existing.volume = parseFloat(volInput.value);
+        existing.notes = notesInput.value;
+      } else {
+        DB.botLogs.push({ id: uid(), botId, date, volume: parseFloat(volInput.value), notes: notesInput.value });
+      }
+      saved++;
+    });
+    if(saved===0){ toast('Enter at least one volume'); return; }
+    await saveOne('botLogs');
+    closeModal();
+    renderAutomation();
+    toast(`Logged volume for ${saved} bot${saved===1?'':'s'}`);
+  };
+}
+window.openBatchLogBotVolumeModal = openBatchLogBotVolumeModal;
+document.getElementById('batchLogBotVolumeBtn').onclick = ()=>openBatchLogBotVolumeModal();
+
+document.querySelectorAll('#botProgramToggle button').forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll('#botProgramToggle button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    botProgramFilter = btn.dataset.program;
+    renderAutomation();
+  };
+});
+
 ['botPeriod8','botPeriod16','botPeriod24'].forEach(id=>{
   document.getElementById(id).onclick = ()=>{
     ['botPeriod8','botPeriod16','botPeriod24'].forEach(x=>document.getElementById(x).classList.remove('active'));
@@ -2988,6 +3101,7 @@ document.getElementById('exportBotLogs').onclick = ()=>{
   const csv = toCSV(DB.botLogs, [
     {label:'Date', get:r=>r.date},
     {label:'Bot', get:r=>{ const b=DB.bots.find(x=>x.id===r.botId); return b?b.name:'(deleted bot)'; }},
+    {label:'Program', get:r=>{ const b=DB.bots.find(x=>x.id===r.botId); return b?b.program||'':''; }},
     {label:'Volume', get:r=>r.volume},
     {label:'Notes', get:r=>r.notes}
   ]);
@@ -3677,8 +3791,12 @@ function renderDashboard(){
   document.getElementById('kpiCarryover').textContent = Math.round(totalCarryover);
   document.getElementById('kpiCarryoverDelta').textContent = notCleared.length ? `${notCleared.length} task${notCleared.length>1?'s':''} not fully cleared` : 'All cleared this period';
 
-  // Volume by task: today vs yesterday (incoming queue/portal volume at task start)
-  const y = addDays(todayStr(), -1);
+  // Volume by task: today vs. the last working day (Mon–Fri only — no weekend noise)
+  const volBody = document.getElementById('volumeTodayBody');
+  if(isWeekendDate(todayStr())){
+    volBody.innerHTML = `<tr><td colspan="5"><div class="empty">It's the weekend — no comparison to show since the work week is Monday–Friday.</div></td></tr>`;
+  } else {
+  const y = previousWorkday(todayStr());
   const todayVol = {}, ydayVol = {};
   DB.dailyTasks.forEach(t=>{
     const v = parseFloat(t.startVolume) || 0;
@@ -3687,9 +3805,8 @@ function renderDashboard(){
     else if(t.date===y) ydayVol[t.task] = (ydayVol[t.task]||0) + v;
   });
   const volTasks = [...new Set([...Object.keys(todayVol), ...Object.keys(ydayVol)])];
-  const volBody = document.getElementById('volumeTodayBody');
   if(volTasks.length===0){
-    volBody.innerHTML = `<tr><td colspan="5"><div class="empty">No start volume logged yet today or yesterday.</div></td></tr>`;
+    volBody.innerHTML = `<tr><td colspan="5"><div class="empty">No start volume logged yet today or on ${fmtDate(y)}.</div></td></tr>`;
   } else {
     const volRows = volTasks.map(task=>{
       const t = todayVol[task]||0, yy = ydayVol[task]||0;
@@ -3709,6 +3826,7 @@ function renderDashboard(){
         <td>${r.isSpike ? '<span class="badge b-spike">⚠ Spike</span>' : '<span class="badge b-ok">Normal</span>'}</td>
       </tr>`;
     }).join('');
+  }
   }
 
   // Spike detection: compare current period's completed count per task vs baseline (avg per day for daily, total for weekly)
