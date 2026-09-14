@@ -170,6 +170,7 @@
   .cal-day.cd-minor{background:#FFF0AD;}
   .cal-day.cd-major{background:#FFD9D9;}
   .cal-day.cd-excused{background:#EAFDFF;}
+  .cal-day.cd-holiday{background:#F6AFFF;border-color:#DC5AEE;}
   .mode-pill:hover{background:rgba(255,255,255,0.2);}
 
   .identity-bar{display:flex;align-items:center;gap:8px;background:var(--white);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:14px;font-size:12.5px;}
@@ -371,6 +372,7 @@
               <button class="btn btn-ghost btn-sm" id="thisWeekBtn" style="margin-left:6px;">This week</button>
             </div>
             <button class="btn btn-ghost btn-sm manager-only" id="generateWeekBtn">Generate this week's checklist</button>
+            <button class="btn btn-ghost btn-sm manager-only" id="manageHolidaysBtn2">🎉 Manage holidays</button>
           </div>
           <div class="grid-wrap"><table class="week-table" id="weekTable"></table></div>
           <div class="grid-legend">
@@ -558,6 +560,7 @@
               <span class="label" id="attCalMonthLabel"></span>
               <button id="attCalNextMonth">›</button>
               <button class="btn btn-ghost btn-sm" id="attCalThisMonth" style="margin-left:6px;">This month</button>
+              <button class="btn btn-ghost btn-sm" id="manageHolidaysBtn" style="margin-left:6px;">🎉 Manage holidays</button>
             </div>
           </div>
           <div class="cal-grid" id="attCalGrid"></div>
@@ -566,6 +569,7 @@
             <span class="lg-item"><span class="lg-dot" style="background:#FFF0AD;"></span> Tardy / early departure</span>
             <span class="lg-item"><span class="lg-dot" style="background:#FFD9D9;"></span> Absence / no-show</span>
             <span class="lg-item"><span class="lg-dot" style="background:#EAFDFF;"></span> Excused</span>
+            <span class="lg-item"><span class="lg-dot" style="background:#F6AFFF;"></span> Company holiday</span>
             <span class="lg-item">Click any day to add or edit that entry.</span>
           </div>
         </div>
@@ -669,8 +673,8 @@
 
 <script>
 /* ---------------- storage ---------------- */
-const KEYS = { taskTemplates:'task-templates-data', dailyTasks:'daily-tasks-data', lunchLog:'lunch-log-data', staff:'staff-roster-data', attendance:'attendance-data', coachingNotes:'coaching-notes-data', settings:'app-settings-data', jobAids:'job-aids-data', tickets:'tickets-data', bots:'bots-data', botLogs:'bot-logs-data', helpRequests:'help-requests-data' };
-let DB = { taskTemplates:[], dailyTasks:[], lunchLog:[], staff:[], attendance:[], coachingNotes:[], settings:{}, jobAids:[], tickets:[], bots:[], botLogs:[], helpRequests:[] };
+const KEYS = { taskTemplates:'task-templates-data', dailyTasks:'daily-tasks-data', lunchLog:'lunch-log-data', staff:'staff-roster-data', attendance:'attendance-data', coachingNotes:'coaching-notes-data', settings:'app-settings-data', jobAids:'job-aids-data', tickets:'tickets-data', bots:'bots-data', botLogs:'bot-logs-data', helpRequests:'help-requests-data', holidays:'holidays-data' };
+let DB = { taskTemplates:[], dailyTasks:[], lunchLog:[], staff:[], attendance:[], coachingNotes:[], settings:{}, jobAids:[], tickets:[], bots:[], botLogs:[], helpRequests:[], holidays:[] };
 
 const DEFAULT_TASK_TEMPLATES = [
   'Review/ Dump CMM Shipped','Review/ Dump Arizona Shipped','NDP Bot Failed','Troubleshoot Bots',
@@ -1188,17 +1192,20 @@ function renderAttendanceCalendar(){
   for(let i=0;i<startDow;i++){ html += `<div class="cal-day empty"></div>`; }
   for(let day=1; day<=daysInMonth; day++){
     const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const holiday = DB.holidays.find(h=>h.date===dateStr);
     const entry = staff ? DB.attendance.find(a=>a.staff===staff && a.date===dateStr) : null;
     let cls = '';
     let tag = '';
-    if(entry){
+    if(holiday){
+      cls = 'cd-holiday'; tag = '🎉 '+holiday.label;
+    } else if(entry){
       if(entry.excused){ cls='cd-excused'; tag='Excused'; }
       else if(entry.violationType==='On Time'){ cls='cd-ontime'; tag='On time'; }
       else if(entry.violationType==='Tardy ≤15 min'||entry.violationType==='Tardy >15 min'||entry.violationType==='Early Departure'){ cls='cd-minor'; tag=entry.violationType; }
       else { cls='cd-major'; tag=entry.violationType; }
     }
     const isToday = dateStr===todayStr() ? ' today' : '';
-    html += `<div class="cal-day ${cls}${isToday}" onclick="openCalendarDay('${dateStr}')">
+    html += `<div class="cal-day ${cls}${isToday}" onclick="openCalendarDay('${dateStr}')" title="${holiday ? escAttr(holiday.label) : ''}">
       <span class="cal-daynum">${day}</span>
       ${tag ? `<span class="cal-tag">${tag}</span>` : ''}
     </div>`;
@@ -1222,6 +1229,59 @@ function openCalendarDay(dateStr){
   }
 }
 window.openCalendarDay = openCalendarDay;
+
+function openManageHolidaysModal(){
+  modalBody.innerHTML = `
+    <h3>Manage holidays</h3>
+    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-6px 0 12px;">Holidays show up on the attendance calendar for everyone, no matter who's selected.</p>
+    <div id="holidayListWrap" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:280px;overflow-y:auto;"></div>
+    <div class="form-grid">
+      <div class="field"><label>Date</label><input type="date" id="f_holidayDate"></div>
+      <div class="field"><label>Label</label><input type="text" id="f_holidayLabel" placeholder="e.g. Thanksgiving"></div>
+    </div>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn btn-primary btn-sm" id="addHolidayBtn">+ Add holiday</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+    </div>`;
+  const renderList = ()=>{
+    const wrap = document.getElementById('holidayListWrap');
+    const sorted = [...DB.holidays].sort((a,b)=>a.date.localeCompare(b.date));
+    if(sorted.length===0){ wrap.innerHTML = `<div class="empty" style="padding:16px;">No holidays added yet.</div>`; return; }
+    wrap.innerHTML = sorted.map(h=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--beige);border-radius:8px;">
+        <span style="font-size:12.5px;">🎉 <b>${fmtDate(h.date)}</b> — ${h.label}</span>
+        <button class="icon-btn" onclick="removeHoliday('${h.id}')" title="Remove">✕</button>
+      </div>`).join('');
+  };
+  renderList();
+  window._renderHolidayList = renderList;
+  overlay.classList.add('active');
+  document.getElementById('addHolidayBtn').onclick = async ()=>{
+    const date = document.getElementById('f_holidayDate').value;
+    const label = document.getElementById('f_holidayLabel').value.trim();
+    if(!date || !label){ toast('Enter both a date and a label'); return; }
+    if(DB.holidays.some(h=>h.date===date)){ toast('That date is already marked as a holiday'); return; }
+    DB.holidays.push({id:uid(), date, label});
+    await saveOne('holidays');
+    document.getElementById('f_holidayDate').value = '';
+    document.getElementById('f_holidayLabel').value = '';
+    renderList();
+    renderAttendanceCalendar();
+    renderWeekGrid();
+    toast('Holiday added');
+  };
+}
+window.openManageHolidaysModal = openManageHolidaysModal;
+async function removeHoliday(id){
+  DB.holidays = DB.holidays.filter(h=>h.id!==id);
+  await saveOne('holidays');
+  if(window._renderHolidayList) window._renderHolidayList();
+  renderAttendanceCalendar();
+  renderWeekGrid();
+  toast('Holiday removed');
+}
+window.removeHoliday = removeHoliday;
+document.getElementById('manageHolidaysBtn').onclick = ()=>openManageHolidaysModal();
 document.getElementById('attCalStaffSelect').onchange = renderAttendanceCalendar;
 document.getElementById('attCalPrevMonth').onclick = ()=>{ attCalShiftMonth(-1); renderAttendanceCalendar(); };
 document.getElementById('attCalNextMonth').onclick = ()=>{ attCalShiftMonth(1); renderAttendanceCalendar(); };
@@ -1749,7 +1809,10 @@ function renderWeekGrid(){
   dates.forEach((d,i)=>{
     const dt = new Date(d+'T00:00:00');
     const parity = i%2===0?'even':'odd';
-    thead += `<th class="day-head ${parity}" colspan="2">${DAY_NAMES[i]} ${dt.getMonth()+1}/${dt.getDate()}</th>`;
+    const holiday = DB.holidays.find(h=>h.date===d);
+    const holidayStyle = holiday ? ' style="background:#DC5AEE;"' : '';
+    const holidayTag = holiday ? ` 🎉 ${holiday.label}` : '';
+    thead += `<th class="day-head ${parity}" colspan="2"${holidayStyle} title="${escAttr(holiday?holiday.label:'')}">${DAY_NAMES[i]} ${dt.getMonth()+1}/${dt.getDate()}${holidayTag}</th>`;
   });
   thead += '</tr><tr>';
   dates.forEach((d,i)=>{
@@ -1763,9 +1826,11 @@ function renderWeekGrid(){
     rows += `<tr><td class="task-col">${tt.name}</td>`;
     dates.forEach((d,i)=>{
       const parity = i%2===0?'day-even':'day-odd';
+      const isHoliday = DB.holidays.some(h=>h.date===d);
       ['AM','PM'].forEach(shift=>{
         const endCls = shift==='PM' ? ' day-end' : '';
-        rows += `<td class="shift-cell ${parity}${endCls}">${cellHTML(d, tt.name, shift)}</td>`;
+        const holidayStyle = isHoliday ? ' style="background:#FBE6FF;"' : '';
+        rows += `<td class="shift-cell ${parity}${endCls}"${holidayStyle}>${cellHTML(d, tt.name, shift)}</td>`;
       });
     });
     rows += '</tr>';
@@ -3724,6 +3789,7 @@ document.getElementById('prevWeekBtn').onclick = ()=>{ currentWeekStart = addDay
 document.getElementById('nextWeekBtn').onclick = ()=>{ currentWeekStart = addDays(currentWeekStart,7); renderWeekGrid(); };
 document.getElementById('thisWeekBtn').onclick = ()=>{ currentWeekStart = getMonday(todayStr()); renderWeekGrid(); };
 document.getElementById('generateWeekBtn').onclick = ()=>generateWeekChecklist();
+document.getElementById('manageHolidaysBtn2').onclick = ()=>openManageHolidaysModal();
 document.getElementById('startNewWeekBtn').onclick = ()=>startNewWeek();
 document.getElementById('periodDailyBtn').onclick = ()=>{
   dashPeriod = 'daily';
