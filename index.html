@@ -530,7 +530,6 @@
             </div>
             <button class="btn btn-ghost btn-sm" id="logPtoBtn">+ Log PTO</button>
             <button class="btn btn-ghost btn-sm" id="logCallOffBtn">+ Log Call-Off</button>
-            <button class="btn btn-ghost btn-sm" id="logHolidayBtn">+ Log Holiday</button>
             <button class="btn btn-ghost btn-sm" id="batchAttendanceBtn">📋 Batch add (week)</button>
             <button class="btn btn-primary btn-sm" id="addAttendanceBtn">+ Log entry</button>
           </div>
@@ -1233,7 +1232,7 @@ window.openCalendarDay = openCalendarDay;
 function openManageHolidaysModal(){
   modalBody.innerHTML = `
     <h3>Manage holidays</h3>
-    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-6px 0 12px;">Holidays show up on the attendance calendar for everyone, no matter who's selected.</p>
+    <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-6px 0 12px;">Marks the day on the calendar and grid for everyone, and automatically logs an excused "Holiday" attendance entry (0 points) for your whole roster that day.</p>
     <div id="holidayListWrap" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:280px;overflow-y:auto;"></div>
     <div class="form-grid">
       <div class="field"><label>Date</label><input type="date" id="f_holidayDate"></div>
@@ -1263,21 +1262,48 @@ function openManageHolidaysModal(){
     if(DB.holidays.some(h=>h.date===date)){ toast('That date is already marked as a holiday'); return; }
     DB.holidays.push({id:uid(), date, label});
     await saveOne('holidays');
+
+    let excusedCount = 0;
+    DB.staff.forEach(s=>{
+      const already = DB.attendance.find(a=>a.staff===s.name && a.date===date);
+      if(already){
+        // leave any existing entry alone rather than overwrite something already logged
+        return;
+      }
+      const rec = {
+        id: uid(), date, staff: s.name,
+        schedStart:'', schedEnd:'', scheduleOverride:false, clockIn:'', clockOut:'',
+        violationType:'Absence', notifiedProperly:'N/A', excused:true, excuseReason:'Holiday',
+        notes: `Company holiday: ${label}`
+      };
+      rec.points = computeAttendancePoints(rec);
+      DB.attendance.push(rec);
+      excusedCount++;
+    });
+    if(excusedCount>0) await saveOne('attendance');
+
     document.getElementById('f_holidayDate').value = '';
     document.getElementById('f_holidayLabel').value = '';
     renderList();
     renderAttendanceCalendar();
     renderWeekGrid();
-    toast('Holiday added');
+    renderAttendance();
+    toast(`Holiday added — excused ${excusedCount} staff member${excusedCount===1?'':'s'} for ${fmtDate(date)}`);
   };
 }
 window.openManageHolidaysModal = openManageHolidaysModal;
 async function removeHoliday(id){
-  DB.holidays = DB.holidays.filter(h=>h.id!==id);
+  const h = DB.holidays.find(x=>x.id===id); if(!h) return;
+  if(!confirm(`Remove "${h.label}" on ${fmtDate(h.date)}? This also removes the auto-excused "Holiday" attendance entries created for that date (any entries you edited by hand stay untouched).`)) return;
+  DB.holidays = DB.holidays.filter(x=>x.id!==id);
   await saveOne('holidays');
+  const before = DB.attendance.length;
+  DB.attendance = DB.attendance.filter(a=>!(a.date===h.date && a.violationType==='Absence' && a.excuseReason==='Holiday' && a.notes===`Company holiday: ${h.label}`));
+  if(DB.attendance.length!==before) await saveOne('attendance');
   if(window._renderHolidayList) window._renderHolidayList();
   renderAttendanceCalendar();
   renderWeekGrid();
+  renderAttendance();
   toast('Holiday removed');
 }
 window.removeHoliday = removeHoliday;
@@ -1478,12 +1504,6 @@ document.getElementById('logCallOffBtn').onclick = ()=>openAttendanceModal(null,
   schedStart:'', schedEnd:'', scheduleOverride:false, clockIn:'', clockOut:'',
   violationType:'Absence', notifiedProperly:'Yes', excused:false, excuseReason:'',
   notes:'', _title:'Log Call-Off (Notified in Advance)'
-});
-document.getElementById('logHolidayBtn').onclick = ()=>openAttendanceModal(null, {
-  id:null, date:document.getElementById('attendanceDateFilter').value||todayStr(), staff:'',
-  schedStart:'', schedEnd:'', scheduleOverride:false, clockIn:'', clockOut:'',
-  violationType:'Absence', notifiedProperly:'N/A', excused:true, excuseReason:'Holiday',
-  notes:'', _title:'Log Holiday'
 });
 
 /* ---------------- batch attendance entry (one employee, one week, clock in/out per day) ---------------- */
