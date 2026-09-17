@@ -795,9 +795,18 @@ async function loadAll(){
   // Only seed the default task list if that specific document genuinely doesn't exist yet
   // (a real first-time setup) — never as a side effect of a failed read elsewhere.
   if(!existedBefore.taskTemplates && (!DB.taskTemplates || DB.taskTemplates.length===0)){
-    DB.taskTemplates = DEFAULT_TASK_TEMPLATES.map(name=>({id:uid(), name}));
+    DB.taskTemplates = DEFAULT_TASK_TEMPLATES.map(name=>({id:uid(), name, requiresBotChecklist: name==='Troubleshoot Bots'}));
     await saveOne('taskTemplates');
   }
+  // migrate existing installs: turn on the bot checklist for "Troubleshoot Bots" if it's never been set either way
+  let migratedChecklist = false;
+  DB.taskTemplates.forEach(tt=>{
+    if(tt.name==='Troubleshoot Bots' && tt.requiresBotChecklist===undefined){
+      tt.requiresBotChecklist = true;
+      migratedChecklist = true;
+    }
+  });
+  if(migratedChecklist) await saveOne('taskTemplates');
   attachLiveSync();
 }
 function showConnectionBanner(){
@@ -916,12 +925,20 @@ async function checkNoonCarryover(){
   amInProgress.forEach(am=>{
     let pm = DB.dailyTasks.find(t=>t.date===today && t.task===am.task && t.shift==='PM' && t.agent===am.agent);
     if(!pm){
-      pm = {id:uid(), date:today, task:am.task, shift:'PM', agent:am.agent, status:'In Progress', startedBy:am.agent, startedAt:nowLocalInput(), completedBy:'', completedAt:'', processingHrs:'', bestRx:'', portal:'', notes:'', startPortalPages:'', startBestRxQueue:'', startVolume:'', feedbackNote:'', queueCleared:null, carryOverAmount:'', carriedToPm:false};
+      pm = {id:uid(), date:today, task:am.task, shift:'PM', agent:am.agent, status:'In Progress', startedBy:am.agent, startedAt:nowLocalInput(), completedBy:'', completedAt:'', processingHrs:'', bestRx:'', portal:'', notes:'', startPortalPages:'', startBestRxQueue:'', startVolume:'', feedbackNote:'', queueCleared:null, carryOverAmount:'', carriedToPm:false, botsChecked: am.botsChecked ? [...am.botsChecked] : [], botsCheckedNames: am.botsCheckedNames ? [...am.botsCheckedNames] : []};
       DB.dailyTasks.push(pm);
-    } else if(pm.status==='Not Started'){
-      pm.status = 'In Progress';
-      pm.startedBy = pm.agent;
-      pm.startedAt = pm.startedAt || nowLocalInput();
+    } else {
+      if(pm.status==='Not Started'){
+        pm.status = 'In Progress';
+        pm.startedBy = pm.agent;
+        pm.startedAt = pm.startedAt || nowLocalInput();
+      }
+      // don't lose whatever's already checked on either side of the rollover
+      if(am.botsChecked && am.botsChecked.length){
+        const merged = new Set([...(pm.botsChecked||[]), ...am.botsChecked]);
+        pm.botsChecked = [...merged];
+        pm.botsCheckedNames = botNamesFromIds(pm.botsChecked);
+      }
     }
     am.carriedToPm = true;
   });
@@ -1674,7 +1691,7 @@ function renderDailyTasks(){
   body.innerHTML = rows.map(t=>`
     <tr>
       <td>${fmtDate(t.date)}</td>
-      <td>${t.task}</td>
+      <td>${t.task}${(t.botsChecked && t.botsChecked.length) ? ` <span class="badge b-na" title="${escAttr((t.botsCheckedNames||[]).join(', '))}">🤖 ${t.botsChecked.length}</span>` : ''}</td>
       <td>${t.shift}</td>
       <td>${t.agent||'—'}</td>
       <td>${taskStatusBadge(t.status)}</td>
@@ -1914,6 +1931,7 @@ function cellHTML(date, task, shift){
   const volBits = [];
   if(entry.startVolume) volBits.push(`Start vol: ${entry.startVolume}`);
   if(entry.status==='Completed' && entry.queueCleared===false) volBits.push(`Carryover: ${entry.carryOverAmount||0}`);
+  if(entry.botsChecked && entry.botsChecked.length) volBits.push(`Bots checked: ${entry.botsChecked.length}`);
   const volSuffix = volBits.length ? ' · '+volBits.join(' · ') : '';
   return `<button class="cell-btn${isOthers?' locked':''}" title="${escAttr(entry.task+' · '+hint+volSuffix)}" data-entry-id="${entry.id}">
     <div class="cell-fill ${cls}">
@@ -1936,9 +1954,15 @@ function openGridCell(id){
     <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>`;
   overlay.classList.add('active');
   const startBtn = document.getElementById('qaStart');
-  if(startBtn) startBtn.onclick = ()=>{ openStartPrompt(id, t.agent||currentStaffName||''); };
+  if(startBtn) startBtn.onclick = ()=>{
+    if(taskRequiresBotChecklist(t.task)) openBotTaskModal(id, t.agent||currentStaffName||'');
+    else openStartPrompt(id, t.agent||currentStaffName||'');
+  };
   const completeBtn = document.getElementById('qaComplete');
-  if(completeBtn) completeBtn.onclick = ()=>{ openCompleteModal(id); };
+  if(completeBtn) completeBtn.onclick = ()=>{
+    if(taskRequiresBotChecklist(t.task)) openBotTaskModal(id, t.agent||currentStaffName||'');
+    else openCompleteModal(id);
+  };
   document.getElementById('qaEdit').onclick = ()=>{ openTaskEntryModal(t); };
   document.getElementById('qaDelete').onclick = async ()=>{ closeModal(); await deleteTask(id); renderWeekGrid(); };
 }
@@ -1947,18 +1971,21 @@ window.openGridCell = openGridCell;
 /* ---------------- start-of-task volume prompt ---------------- */
 function openStartPrompt(id, startedByName){
   const t = DB.dailyTasks.find(x=>x.id===id); if(!t) return;
+  const needsChecklist = taskRequiresBotChecklist(t.task);
   modalBody.innerHTML = `
     <h3>Start: ${t.task} <span style="font-size:12px;color:rgba(46,3,38,0.55);font-weight:600;">(${t.shift})</span></h3>
     <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-4px 0 12px;">If this task pulls from the Portal or a BestRx queue, log what's waiting so carryover can be tracked. Leave blank if it doesn't apply.</p>
     <div class="form-grid">
       <div class="field"><label>Portal pages (10 items/page)</label><input type="number" id="f_startPages" min="0" placeholder="e.g. 4"></div>
       <div class="field"><label>BestRx queue volume</label><input type="number" id="f_startQueue" min="0" placeholder="e.g. 12"></div>
+      ${needsChecklist ? botChecklistFieldsHTML(t.botsChecked) : ''}
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" id="skipStartBtn">Skip</button>
       <button class="btn btn-primary" id="confirmStartBtn">Start task</button>
     </div>`;
   overlay.classList.add('active');
+  if(needsChecklist) wireBotChecklistSelectAll();
   const doStart = async (pages, queue)=>{
     if(!t.agent && startedByName) t.agent = startedByName;
     t.status='In Progress';
@@ -1967,6 +1994,11 @@ function openStartPrompt(id, startedByName){
     t.startPortalPages = pages;
     t.startBestRxQueue = queue;
     t.startVolume = (parseFloat(pages)||0)*10 + (parseFloat(queue)||0);
+    if(needsChecklist){
+      const botsChecked = collectBotChecklist();
+      t.botsChecked = botsChecked;
+      t.botsCheckedNames = botNamesFromIds(botsChecked);
+    }
     await saveOne('dailyTasks');
     closeModal();
     renderWeekGrid(); renderDailyTasks(); refreshAgentSuggestions();
@@ -1979,12 +2011,124 @@ function openStartPrompt(id, startedByName){
 }
 window.openStartPrompt = openStartPrompt;
 
+/* ---------------- unified persistent checklist modal (start -> stays open -> complete) ---------------- */
+function openBotTaskModal(id, startedByName){
+  const t = DB.dailyTasks.find(x=>x.id===id); if(!t) return;
+  const bots = DB.bots.filter(b=>b.active!==false);
+
+  const buildModal = ()=>{
+    const checked = t.botsChecked || [];
+    modalBody.innerHTML = `
+      <h3>${t.task} <span style="font-size:12px;color:rgba(46,3,38,0.55);font-weight:600;">(${t.shift})</span></h3>
+      <p style="font-size:12px;color:rgba(46,3,38,0.55);margin:-4px 0 12px;">Check off each bot as you look at it — progress saves automatically. Close and come back any time; it'll pick up right where you left off.</p>
+      <div class="field full" style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <label style="margin:0;">🤖 Bots checked — <span id="botChecklistCount"></span></label>
+          <span id="botChecklistSelectAll" style="font-weight:600;cursor:pointer;color:var(--purple);font-size:11px;"></span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--white);">
+          ${bots.length===0 ? `<p style="font-size:11.5px;color:rgba(46,3,38,0.5);margin:0;">No bots on the roster yet — add some in Automation → "Manage bots".</p>` : bots.map(b=>`
+            <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:400;cursor:pointer;">
+              <input type="checkbox" class="bot-checklist-item" value="${b.id}" ${checked.includes(b.id)?'checked':''}>
+              ${b.name}${b.program?` <span class="badge b-na" style="margin-left:4px;">${b.program}</span>`:''}
+            </label>`).join('')}
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="field full"><label>Feedback / notes (optional)</label><textarea id="f_feedback" rows="2" placeholder="Anything worth flagging?">${t.feedbackNote||''}</textarea></div>
+      </div>
+      <div class="modal-actions" style="justify-content:space-between;">
+        <span id="completeHint" style="font-size:11.5px;color:rgba(179,32,77,0.8);"></span>
+        <div style="display:flex;gap:8px;">
+          ${appMode==='manager' ? `<button class="btn btn-ghost btn-sm" id="forceBotCompleteBtn" style="color:#B3204D;border-color:rgba(179,32,77,0.25);">Force complete</button>` : ''}
+          <button class="btn btn-ghost" onclick="closeModal()">Close for now</button>
+          <button class="btn btn-primary" id="confirmBotCompleteBtn" style="background:#1f7a44;">✓ Mark complete</button>
+        </div>
+      </div>`;
+
+    const finishTask = async ()=>{
+      t.status = 'Completed';
+      t.completedAt = nowLocalInput();
+      t.completedBy = currentStaffName || t.agent || '';
+      t.processingHrs = computeTaskDuration(t.startedAt || t.completedAt, t.completedAt);
+      t.feedbackNote = document.getElementById('f_feedback').value;
+      if(t.queueCleared==null) t.queueCleared = true;
+      await saveOne('dailyTasks');
+      closeModal();
+      renderWeekGrid(); renderDailyTasks();
+    };
+
+    const updateState = ()=>{
+      const ids = [...document.querySelectorAll('.bot-checklist-item')].filter(x=>x.checked).map(x=>x.value);
+      const allChecked = bots.length>0 && ids.length===bots.length;
+      document.getElementById('botChecklistCount').textContent = `${ids.length}/${bots.length}`;
+      document.getElementById('botChecklistSelectAll').textContent = allChecked ? 'Deselect all' : 'Select all';
+      document.getElementById('completeHint').textContent = allChecked ? '' : 'Check off every bot to enable completing this task.';
+      const btn = document.getElementById('confirmBotCompleteBtn');
+      btn.disabled = !allChecked;
+      btn.style.opacity = allChecked ? '1' : '0.4';
+      btn.style.cursor = allChecked ? 'pointer' : 'not-allowed';
+      return ids;
+    };
+
+    document.querySelectorAll('.bot-checklist-item').forEach(cb=>{
+      cb.onchange = async ()=>{
+        const ids = updateState();
+        t.botsChecked = ids;
+        t.botsCheckedNames = botNamesFromIds(ids);
+        await saveOne('dailyTasks');
+        renderWeekGrid();
+      };
+    });
+    document.getElementById('botChecklistSelectAll').onclick = async ()=>{
+      const boxes = document.querySelectorAll('.bot-checklist-item');
+      const allNowChecked = [...boxes].every(b=>b.checked);
+      boxes.forEach(b=>{ b.checked = !allNowChecked; });
+      const ids = updateState();
+      t.botsChecked = ids;
+      t.botsCheckedNames = botNamesFromIds(ids);
+      await saveOne('dailyTasks');
+      renderWeekGrid();
+    };
+    document.getElementById('confirmBotCompleteBtn').onclick = async ()=>{
+      const ids = updateState();
+      if(bots.length>0 && ids.length<bots.length) return; // guarded — button is disabled in this state anyway
+      await finishTask();
+      toast('All bots checked — task marked complete');
+    };
+    const forceBtn = document.getElementById('forceBotCompleteBtn');
+    if(forceBtn) forceBtn.onclick = async ()=>{
+      if(!confirm('Mark this task complete even though not every bot is checked off?')) return;
+      await finishTask();
+      toast('Marked complete');
+    };
+
+    updateState();
+  };
+
+  (async ()=>{
+    if(t.status==='Not Started'){
+      if(!t.agent && startedByName) t.agent = startedByName;
+      t.status = 'In Progress';
+      t.startedAt = t.startedAt || nowLocalInput();
+      t.startedBy = startedByName || t.agent || '';
+      await saveOne('dailyTasks');
+      renderWeekGrid(); renderDailyTasks(); refreshAgentSuggestions();
+    }
+    buildModal();
+    overlay.classList.add('active');
+  })();
+}
+window.openBotTaskModal = openBotTaskModal;
+
 /* ---------------- completion feedback prompt (staff-facing, simplified) ---------------- */
 function openStaffCompletePrompt(id){
   const t = DB.dailyTasks.find(x=>x.id===id); if(!t) return;
+  const needsChecklist = taskRequiresBotChecklist(t.task);
   modalBody.innerHTML = `
     <h3>Complete: ${t.task} <span style="font-size:12px;color:rgba(46,3,38,0.55);font-weight:600;">(${t.shift})</span></h3>
     <div class="form-grid">
+      ${needsChecklist ? botChecklistFieldsHTML(t.botsChecked) : ''}
       <div class="field full"><label>Feedback / notes (optional)</label><textarea id="f_feedback" rows="3" placeholder="Anything worth flagging about this task?"></textarea></div>
       <div class="field full" style="display:flex;align-items:center;gap:8px;">
         <input type="checkbox" id="f_cleared" checked style="width:auto;">
@@ -2000,10 +2144,16 @@ function openStaffCompletePrompt(id){
       <button class="btn btn-primary" id="confirmCompleteBtn" style="background:#1f7a44;">✓ Mark complete</button>
     </div>`;
   overlay.classList.add('active');
+  if(needsChecklist) wireBotChecklistSelectAll();
   document.getElementById('f_cleared').onchange = (e)=>{
     document.getElementById('carryoverWrap').style.display = e.target.checked ? 'none' : '';
   };
   document.getElementById('confirmCompleteBtn').onclick = async ()=>{
+    let botsChecked = t.botsChecked || [];
+    if(needsChecklist){
+      botsChecked = collectBotChecklist();
+      if(botsChecked.length===0 && !confirm('No bots checked off yet — mark this task complete anyway?')) return;
+    }
     const cleared = document.getElementById('f_cleared').checked;
     t.status='Completed';
     t.completedAt = nowLocalInput();
@@ -2012,6 +2162,10 @@ function openStaffCompletePrompt(id){
     t.feedbackNote = document.getElementById('f_feedback').value;
     t.queueCleared = cleared;
     t.carryOverAmount = cleared ? 0 : (parseFloat(document.getElementById('f_carryover').value)||0);
+    if(needsChecklist){
+      t.botsChecked = botsChecked;
+      t.botsCheckedNames = botNamesFromIds(botsChecked);
+    }
     await saveOne('dailyTasks');
     closeModal();
     renderWeekGrid(); renderDailyTasks();
@@ -2029,6 +2183,10 @@ async function staffCycleStatus(id){
   }
   if(t.agent!==currentStaffName){
     toast(`This task belongs to ${t.agent}`);
+    return;
+  }
+  if(taskRequiresBotChecklist(t.task) && (t.status==='Not Started' || t.status==='In Progress')){
+    openBotTaskModal(id, currentStaffName);
     return;
   }
   if(t.status==='Not Started'){
@@ -2080,9 +2238,11 @@ function openCellModal(date, task, shift){
         <button class="btn btn-ghost btn-sm" style="color:#B3204D;" onclick="closeModal();deleteTask('${t.id}')">Delete</button>
       </div>`;
     } else if(canAct){
-      actionBtn = t.status==='Not Started'
-        ? `<button class="btn btn-primary btn-sm" onclick="closeModal();openStartPrompt('${t.id}', currentStaffName)">▶ Start</button>`
-        : `<button class="btn btn-primary btn-sm" style="background:#1f7a44;" onclick="closeModal();openStaffCompletePrompt('${t.id}')">✓ Complete</button>`;
+      actionBtn = taskRequiresBotChecklist(t.task)
+        ? `<button class="btn btn-primary btn-sm" onclick="closeModal();openBotTaskModal('${t.id}', currentStaffName)">${t.status==='Not Started'?'▶ Start':'🤖 Continue checklist'}</button>`
+        : (t.status==='Not Started'
+          ? `<button class="btn btn-primary btn-sm" onclick="closeModal();openStartPrompt('${t.id}', currentStaffName)">▶ Start</button>`
+          : `<button class="btn btn-primary btn-sm" style="background:#1f7a44;" onclick="closeModal();openStaffCompletePrompt('${t.id}')">✓ Complete</button>`);
     }
     return `<div class="card" style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
       <div>
@@ -2230,6 +2390,7 @@ overlay.addEventListener('click', e=>{ if(e.target===overlay) closeModal(); });
 function openCompleteModal(id){
   const t = DB.dailyTasks.find(x=>x.id===id); if(!t) return;
   const cleared = t.queueCleared!==false;
+  const needsChecklist = taskRequiresBotChecklist(t.task);
   modalBody.innerHTML = `
     <h3>Complete: ${t.task} (${t.shift})</h3>
     <div class="form-grid">
@@ -2237,6 +2398,7 @@ function openCompleteModal(id){
       <div class="field"><label>Completed at</label><input type="datetime-local" id="f_completedAt" value="${nowLocalInput()}"></div>
       <div class="field"><label>Amount completed (BestRx)</label><input type="text" id="f_bestrx" value="${t.bestRx||''}" placeholder="manual entry"></div>
       <div class="field"><label>Amount completed (Portal)</label><input type="text" id="f_portal" value="${t.portal||''}" placeholder="manual entry"></div>
+      ${needsChecklist ? botChecklistFieldsHTML(t.botsChecked) : ''}
       <div class="field full"><label>Feedback / Notes</label><textarea id="f_notes" rows="2">${t.feedbackNote||t.notes||''}</textarea></div>
       <div class="field full" style="display:flex;align-items:center;gap:8px;">
         <input type="checkbox" id="f_cleared" ${cleared?'checked':''} style="width:auto;">
@@ -2252,6 +2414,7 @@ function openCompleteModal(id){
       <button class="btn btn-primary" id="saveCompleteBtn">Mark completed</button>
     </div>`;
   overlay.classList.add('active');
+  if(needsChecklist) wireBotChecklistSelectAll();
   document.getElementById('f_cleared').onchange = (e)=>{
     document.getElementById('carryoverWrap').style.display = e.target.checked ? 'none' : '';
   };
@@ -2268,6 +2431,11 @@ function openCompleteModal(id){
     t.carryOverAmount = isCleared ? 0 : (parseFloat(document.getElementById('f_carryover').value)||0);
     t.processingHrs = computeTaskDuration(t.startedAt, t.completedAt);
     t.status = 'Completed';
+    if(needsChecklist){
+      const botsChecked = collectBotChecklist();
+      t.botsChecked = botsChecked;
+      t.botsCheckedNames = botNamesFromIds(botsChecked);
+    }
     await saveOne('dailyTasks');
     closeModal(); renderDailyTasks(); renderWeekGrid(); renderDashboard(); refreshAgentSuggestions(); toast('Task completed');
   };
@@ -2282,6 +2450,8 @@ function openTaskEntryModal(existing, prefill){
   if(t.agent && !rosterNames.includes(t.agent)) rosterNames.push(t.agent); // keep legacy/free-text names selectable
   const agentOptions = `<option value="">— Unassigned —</option>` + rosterNames.map(n=>`<option value="${escAttr(n)}" ${n===t.agent?'selected':''}>${n}</option>`).join('');
   const cleared = t.queueCleared!==false;
+  const checklistTaskNames = DB.taskTemplates.filter(x=>x.requiresBotChecklist).map(x=>x.name);
+  const needsChecklist = checklistTaskNames.includes(t.task);
   modalBody.innerHTML = `
     <h3>${existing?'Edit task entry':'Add task entry'}</h3>
     <div class="form-grid">
@@ -2301,6 +2471,9 @@ function openTaskEntryModal(existing, prefill){
       <div class="field"><label>BestRx queue (at start)</label><input type="number" min="0" id="f_startQueue" value="${t.startBestRxQueue||''}"></div>
       <div class="field"><label>Amount completed (BestRx)</label><input type="text" id="f_bestrx" value="${t.bestRx||''}"></div>
       <div class="field"><label>Amount completed (Portal)</label><input type="text" id="f_portal" value="${t.portal||''}"></div>
+      <div class="full" id="botChecklistWrap" style="display:${needsChecklist?'':'none'};">
+        ${botChecklistFieldsHTML(t.botsChecked)}
+      </div>
       <div class="field full" style="display:flex;align-items:center;gap:8px;">
         <input type="checkbox" id="f_clearedEdit" ${cleared?'checked':''} style="width:auto;">
         <label style="margin:0;">Cleared the queue completely</label>
@@ -2316,11 +2489,15 @@ function openTaskEntryModal(existing, prefill){
       <button class="btn btn-primary" id="saveTaskEntryBtn">Save</button>
     </div>`;
   overlay.classList.add('active');
+  wireBotChecklistSelectAll();
   document.getElementById('f_clearedEdit').onchange = (e)=>{
     document.getElementById('carryoverEditWrap').style.display = e.target.checked ? 'none' : '';
   };
   document.getElementById('f_shift').onchange = (e)=>{
     document.getElementById('copyToPmWrap').style.display = e.target.value==='AM' ? '' : 'none';
+  };
+  document.getElementById('f_task').onchange = (e)=>{
+    document.getElementById('botChecklistWrap').style.display = checklistTaskNames.includes(e.target.value) ? '' : 'none';
   };
   document.getElementById('saveTaskEntryBtn').onclick = async ()=>{
     const startedAt = document.getElementById('f_startedAt').value;
@@ -2348,6 +2525,14 @@ function openTaskEntryModal(existing, prefill){
       carryOverAmount: isCleared ? 0 : (parseFloat(document.getElementById('f_carryoverEdit').value)||0),
       feedbackNote: feedback, notes: feedback
     };
+    if(checklistTaskNames.includes(task)){
+      const botsCheckedSel = collectBotChecklist();
+      rec.botsChecked = botsCheckedSel;
+      rec.botsCheckedNames = botNamesFromIds(botsCheckedSel);
+    } else {
+      rec.botsChecked = t.botsChecked || [];
+      rec.botsCheckedNames = t.botsCheckedNames || [];
+    }
     if(existing){ DB.dailyTasks = DB.dailyTasks.map(x=>x.id===rec.id?{...x, ...rec}:x); } else { DB.dailyTasks.push(rec); }
     if(copyToPm && agent) await copyAmAssignmentToPm(date, task, agent);
     await saveOne('dailyTasks'); closeModal(); renderDailyTasks(); renderWeekGrid(); renderDashboard(); refreshAgentSuggestions(); toast(copyToPm && agent ? 'Saved — also assigned to PM' : 'Task entry saved');
@@ -2385,13 +2570,19 @@ function openManageTasksModal(){
       return;
     }
     document.getElementById('templateList').innerHTML = DB.taskTemplates.map((tt,i)=>`
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--beige);border-radius:8px;gap:6px;">
-        <input type="text" value="${escAttr(tt.name)}" id="tplname_${tt.id}" style="flex:1;font-size:12.5px;">
-        <div style="display:flex;gap:2px;">
-          <button class="icon-btn" onclick="renameTemplate('${tt.id}')" title="Save name">✓</button>
-          <button class="icon-btn" onclick="moveTemplate('${tt.id}',-1)" title="Move up" ${i===0?'disabled style="opacity:0.3;"':''}>▲</button>
-          <button class="icon-btn" onclick="moveTemplate('${tt.id}',1)" title="Move down" ${i===DB.taskTemplates.length-1?'disabled style="opacity:0.3;"':''}>▼</button>
-          <button class="icon-btn" onclick="removeTemplate('${tt.id}')" title="Remove">✕</button>
+      <div style="display:flex;flex-direction:column;gap:6px;padding:7px 10px;background:var(--beige);border-radius:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+          <input type="text" value="${escAttr(tt.name)}" id="tplname_${tt.id}" style="flex:1;font-size:12.5px;">
+          <div style="display:flex;gap:2px;">
+            <button class="icon-btn" onclick="renameTemplate('${tt.id}')" title="Save name">✓</button>
+            <button class="icon-btn" onclick="moveTemplate('${tt.id}',-1)" title="Move up" ${i===0?'disabled style="opacity:0.3;"':''}>▲</button>
+            <button class="icon-btn" onclick="moveTemplate('${tt.id}',1)" title="Move down" ${i===DB.taskTemplates.length-1?'disabled style="opacity:0.3;"':''}>▼</button>
+            <button class="icon-btn" onclick="removeTemplate('${tt.id}')" title="Remove">✕</button>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(46,3,38,0.6);">
+          <input type="checkbox" id="tplchecklist_${tt.id}" ${tt.requiresBotChecklist?'checked':''} onchange="toggleTaskBotChecklist('${tt.id}', this.checked)" style="width:auto;">
+          <label for="tplchecklist_${tt.id}" style="margin:0;">🤖 Requires a bot checklist on completion (staff check off each bot they looked at)</label>
         </div>
       </div>`).join('');
   };
@@ -2456,6 +2647,57 @@ async function renameTemplate(id){
   toast(`Renamed to "${newName}"${updatedTasks?` — updated ${updatedTasks} logged task${updatedTasks>1?'s':''}`:''}`);
 }
 window.renameTemplate = renameTemplate;
+
+async function toggleTaskBotChecklist(id, checked){
+  const tt = DB.taskTemplates.find(t=>t.id===id); if(!tt) return;
+  tt.requiresBotChecklist = checked;
+  await saveOne('taskTemplates');
+  toast(checked ? 'Bot checklist enabled for this task' : 'Bot checklist disabled for this task');
+}
+window.toggleTaskBotChecklist = toggleTaskBotChecklist;
+
+/* ---------------- bot troubleshooting checklist (documentation) ---------------- */
+function taskRequiresBotChecklist(taskName){
+  const tt = DB.taskTemplates.find(x=>x.name===taskName);
+  return !!(tt && tt.requiresBotChecklist);
+}
+function botChecklistFieldsHTML(checkedIds){
+  checkedIds = checkedIds || [];
+  const bots = DB.bots.filter(b=>b.active!==false);
+  if(bots.length===0){
+    return `<div class="field full"><p style="font-size:11.5px;color:rgba(46,3,38,0.5);margin:0;">No bots on the roster yet — add some in Automation → "Manage bots" to use this checklist.</p></div>`;
+  }
+  return `
+    <div class="field full" style="border-top:1px dashed var(--line);padding-top:10px;margin-top:2px;">
+      <label style="display:flex;justify-content:space-between;align-items:center;">
+        🤖 Bots checked (documentation)
+        <span id="botChecklistSelectAll" style="text-transform:none;font-weight:600;cursor:pointer;color:var(--purple);">Select all</span>
+      </label>
+      <div style="display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--white);">
+        ${bots.map(b=>`
+          <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:400;text-transform:none;cursor:pointer;">
+            <input type="checkbox" class="bot-checklist-item" value="${b.id}" ${checkedIds.includes(b.id)?'checked':''} style="width:auto;">
+            ${b.name}${b.program?` <span class="badge b-na" style="margin-left:4px;">${b.program}</span>`:''}
+          </label>`).join('')}
+      </div>
+    </div>`;
+}
+function wireBotChecklistSelectAll(){
+  const btn = document.getElementById('botChecklistSelectAll');
+  if(!btn) return;
+  btn.onclick = ()=>{
+    const boxes = document.querySelectorAll('.bot-checklist-item');
+    const allChecked = [...boxes].every(b=>b.checked);
+    boxes.forEach(b=>{ b.checked = !allChecked; });
+    btn.textContent = allChecked ? 'Select all' : 'Deselect all';
+  };
+}
+function collectBotChecklist(){
+  return [...document.querySelectorAll('.bot-checklist-item')].filter(b=>b.checked).map(b=>b.value);
+}
+function botNamesFromIds(ids){
+  return (ids||[]).map(id=>{ const b=DB.bots.find(x=>x.id===id); return b?b.name:null; }).filter(Boolean);
+}
 
 /* ---------------- job aids ---------------- */
 function renderJobAids(){
@@ -3956,6 +4198,7 @@ document.getElementById('exportTasks').onclick = ()=>{
     {label:'Start Portal Pages', get:r=>r.startPortalPages},{label:'Start BestRx Queue', get:r=>r.startBestRxQueue},{label:'Start Volume (total)', get:r=>r.startVolume},
     {label:'Amount Completed (BestRx)', get:r=>r.bestRx},{label:'Amount Completed (Portal)', get:r=>r.portal},
     {label:'Queue Cleared', get:r=>r.queueCleared===true?'Yes':r.queueCleared===false?'No':''},{label:'Carryover Amount', get:r=>r.carryOverAmount},
+    {label:'Bots Checked', get:r=>(r.botsCheckedNames||[]).join('; ')},
     {label:'Feedback/Notes', get:r=>r.feedbackNote||r.notes}
   ]);
   downloadCSV(csv, 'gifthealth_daily_tasks.csv'); toast('CSV downloaded — open in Excel or import to Google Sheets');
