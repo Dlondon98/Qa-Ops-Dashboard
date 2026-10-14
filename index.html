@@ -93,6 +93,9 @@
   .b-na{background:#eee;color:#777;}
   .b-spike{background:#FFE1EC;color:#B3204D;}
   .b-ok{background:#DCF3E3;color:#1f7a44;}
+  .hyb-office{background:#EAFDFF;color:#1a6b78;}
+  .hyb-remote{background:#F6AFFF;color:#7a1160;}
+  .hyb-off{background:#eee;color:#777;}
   .st-notstarted{background:#FFD9D9;color:#A3172F;}
   .st-inprogress{background:#FFF0AD;color:#8A6D00;}
   .st-completed{background:#D4F3DC;color:#1f7a44;}
@@ -171,6 +174,8 @@
   .cal-day.cd-major{background:#FFD9D9;}
   .cal-day.cd-excused{background:#EAFDFF;}
   .cal-day.cd-holiday{background:#F6AFFF;border-color:#DC5AEE;}
+  .cal-day.pto-cell{min-height:96px;align-items:flex-start;cursor:pointer;}
+  .pto-chip{font-size:9.5px;font-weight:700;padding:2px 5px;border-radius:5px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
   .mode-pill:hover{background:rgba(255,255,255,0.2);}
 
   .identity-bar{display:flex;align-items:center;gap:8px;background:var(--white);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:14px;font-size:12.5px;}
@@ -600,6 +605,32 @@
           <div class="kpi" style="--accent:var(--orange)"><div class="label">Coaching notes logged</div><div class="value" id="metricsKpiNotes">0</div><div class="delta">This period</div></div>
         </div>
 
+        <div class="panel-head">
+          <h2>Hybrid Schedule <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· 🏢 Office / 🏠 Remote — same every week, click a cell to change it</span></h2>
+        </div>
+        <div class="grid-wrap" style="margin-bottom:10px;"><table class="week-table" id="hybridScheduleTable"></table></div>
+        <div class="grid-legend" style="margin-bottom:26px;">
+          <span class="lg-item"><span class="lg-dot" style="background:#DCF3E3;"></span> Office</span>
+          <span class="lg-item"><span class="lg-dot" style="background:#eee;"></span> Remote</span>
+          <span class="lg-item">Click any cell to flip it — the schedule repeats the same way every week. Day-specific time off lives in the PTO calendar below.</span>
+        </div>
+
+        <div class="panel-head">
+          <h2>Team PTO Calendar <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· everyone's approved time off, one view</span></h2>
+          <div class="week-nav">
+            <button id="teamPtoPrevMonth">‹</button>
+            <span class="label" id="teamPtoMonthLabel"></span>
+            <button id="teamPtoNextMonth">›</button>
+            <button class="btn btn-ghost btn-sm" id="teamPtoThisMonth" style="margin-left:6px;">This month</button>
+          </div>
+        </div>
+        <div class="cal-grid" id="teamPtoCalGrid" style="margin-bottom:10px;"></div>
+        <div class="matrix-legend" style="margin-bottom:26px;">
+          <span class="lg-item"><span class="lg-dot" style="background:#EAFDFF;"></span> PTO / approved leave</span>
+          <span class="lg-item"><span class="lg-dot" style="background:#F6AFFF;"></span> Company holiday</span>
+          <span class="lg-item">Click a day to see who's out or log new time off.</span>
+        </div>
+
         <div class="panel-head"><h2 id="reportsOverviewTitle">My Direct Reports <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· combined snapshot, this period</span></h2></div>
         <div class="score-grid" id="reportsOverviewGrid" style="margin-bottom:26px;"></div>
 
@@ -641,14 +672,21 @@
         </div></div>
 
         <div class="panel-head">
-          <h2>Completion Log <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· AM vs. PM, this period</span></h2>
+          <h2>Completion Log <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· AM vs. PM, any date range</span></h2>
           <div class="filters">
             <select id="completionShiftFilter"><option value="">AM &amp; PM</option><option>AM</option><option>PM</option></select>
+            <input type="date" id="completionDateFrom">
+            <span style="font-size:11px;color:rgba(46,3,38,0.5);align-self:center;">to</span>
+            <input type="date" id="completionDateTo">
+            <button class="btn btn-ghost btn-sm" id="completionTodayBtn">Today</button>
+            <button class="btn btn-ghost btn-sm" id="completionWeekBtn">This week</button>
+            <button class="btn btn-ghost btn-sm" id="completionLast7Btn">Last 7 days</button>
+            <button class="btn btn-ghost btn-sm" id="completionAllBtn">All time</button>
           </div>
         </div>
         <div class="table-wrap" style="margin-bottom:22px;"><div class="table-scroll">
           <table>
-            <thead><tr><th>Date</th><th>Staff</th><th>Shift</th><th>Task</th><th>Completed at</th><th>Processing time</th></tr></thead>
+            <thead><tr><th>Date</th><th>Staff</th><th>Shift</th><th>Task</th><th>Started at</th><th>Completed at</th><th>Processing time</th></tr></thead>
             <tbody id="completionLogBody"></tbody>
           </table>
         </div></div>
@@ -1112,14 +1150,23 @@ document.getElementById('lunchInBtn').onclick = async ()=>{
   let overageMsg = '';
   if(!openEntry.flaggedOverage && openEntry.durationMin > maxMin + graceMin){
     const overBy = openEntry.durationMin - maxMin;
-    const rec = {
-      id: uid(), date: today, staff,
-      schedStart:'', schedEnd:'', scheduleOverride:false, clockIn:'', clockOut:'',
-      violationType: 'Lunch Overage', notifiedProperly:'N/A', excused:false, excuseReason:'',
-      notes: `Lunch ran ${openEntry.durationMin} min — ${overBy} min over the standard ${maxMin} min (3 min grace applied). Auto-flagged, no points.`
-    };
-    rec.points = computeAttendancePoints(rec);
-    DB.attendance.push(rec);
+    // Attach the overage as a flag on that day's existing attendance record (if any) rather than
+    // creating a separate record with its own violation type — that used to hide clock in/out fields.
+    let rec = DB.attendance.find(a=>a.staff===staff && a.date===today);
+    if(!rec){
+      rec = {
+        id: uid(), date: today, staff,
+        schedStart:'', schedEnd:'', scheduleOverride:false, clockIn:'', clockOut:'',
+        violationType: 'On Time', notifiedProperly:'N/A', excused:false, excuseReason:'',
+        notes: ''
+      };
+      rec.points = computeAttendancePoints(rec);
+      DB.attendance.push(rec);
+    }
+    rec.lunchOverage = true;
+    rec.lunchOverageMinutes = overBy;
+    rec.lunchOverageExcused = false;
+    rec.notes = (rec.notes ? rec.notes + ' | ' : '') + `Lunch ran ${openEntry.durationMin} min — ${overBy} min over the standard ${maxMin} min (3 min grace applied). Flagged, no points — excuse at your discretion.`;
     openEntry.flaggedOverage = true;
     await saveOne('lunchLog');
     await saveOne('attendance');
@@ -1151,7 +1198,9 @@ function renderAttendance(){
     const summaryRows = staffNames.map(staff=>{
       const pts = rollingAttendancePoints(staff, asOf);
       const stage = attendanceStage(pts);
-      const overageCount = DB.attendance.filter(a=>a.staff===staff && a.violationType==='Lunch Overage' && a.date>sixMoAgo && a.date<=asOf).length;
+      const overageCount = DB.attendance.filter(a=>a.staff===staff && a.date>sixMoAgo && a.date<=asOf &&
+        ((a.lunchOverage && !a.lunchOverageExcused) || (a.violationType==='Lunch Overage' && !a.excused))
+      ).length;
       return {staff, pts, stage, overageCount};
     }).sort((a,b)=>b.pts-a.pts);
     summaryBody.innerHTML = summaryRows.map(r=>`
@@ -1185,17 +1234,27 @@ function renderAttendance(){
       <td>${a.staff}</td>
       <td>${a.schedStart?fmt12h(a.schedStart):'—'}${a.schedEnd?' – '+fmt12h(a.schedEnd):''}</td>
       <td>${a.clockIn?fmt12h(a.clockIn):'—'}${a.clockOut?' – '+fmt12h(a.clockOut):''}</td>
-      <td>${violationBadge(a)}</td>
+      <td>${violationBadge(a)}${a.lunchOverage ? ` <span class="badge ${a.lunchOverageExcused?'b-na':'b-spike'}" title="${escAttr(`Lunch ran ${a.lunchOverageMinutes||0} min over`)}">🍽️ ${a.lunchOverageMinutes||0}m over${a.lunchOverageExcused?' (excused)':''}</span>` : ''}</td>
       <td>${a.violationType==='On Time' ? '—' : (a.notifiedProperly||'—')}</td>
       <td>${a.excused ? (a.excuseReason||'Yes') : '—'}</td>
       <td><b>${a.points||0}</b></td>
       <td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${a.notes||''}</td>
-      <td>
+      <td style="white-space:nowrap;">
+        ${a.lunchOverage ? `<button class="icon-btn" title="${a.lunchOverageExcused?'Un-excuse lunch overage':'Excuse lunch overage'}" onclick="toggleLunchOverageExcused('${a.id}')">🍽️</button>` : ''}
         <button class="icon-btn" title="Edit" onclick="openAttendanceModal(DB.attendance.find(x=>x.id==='${a.id}'))">✎</button>
         <button class="icon-btn" title="Delete" onclick="deleteAttendance('${a.id}')">✕</button>
       </td>
     </tr>`).join('');
 }
+
+async function toggleLunchOverageExcused(id){
+  const a = DB.attendance.find(x=>x.id===id); if(!a) return;
+  a.lunchOverageExcused = !a.lunchOverageExcused;
+  await saveOne('attendance');
+  renderAttendance(); renderTeam();
+  toast(a.lunchOverageExcused ? 'Lunch overage excused' : 'Lunch overage un-excused');
+}
+window.toggleLunchOverageExcused = toggleLunchOverageExcused;
 
 function fmt12h(t){
   if(!t) return '';
@@ -1400,6 +1459,14 @@ function openAttendanceModal(existing, prefill){
         <option ${a.notifiedProperly==='No'?'selected':''}>No</option>
       </select></div>
       <div class="field"><label>Points</label><input type="text" id="f_pointsPreview" value="" disabled style="font-weight:700;color:var(--purple);"></div>
+      ${a.lunchOverage ? `
+      <div class="field full" style="background:#FFF7E6;border:1px solid #FFD9A0;border-radius:8px;padding:10px;">
+        <div style="font-size:12.5px;font-weight:700;margin-bottom:6px;">🍽️ Lunch overage flagged — ${a.lunchOverageMinutes||0} min over</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:400;cursor:pointer;">
+          <input type="checkbox" id="f_lunchOverageExcused" ${a.lunchOverageExcused?'checked':''} style="width:auto;">
+          Excuse this lunch overage (separate from the occurrence excuse below — this never carries points either way)
+        </label>
+      </div>` : ''}
       <div class="field full" style="display:flex;align-items:center;gap:8px;margin-top:2px;">
         <input type="checkbox" id="f_excused" ${a.excused?'checked':''} style="width:auto;">
         <label style="margin:0;">Excuse this occurrence (zeroes the points, keeps the record)</label>
@@ -1455,7 +1522,7 @@ function openAttendanceModal(existing, prefill){
     document.getElementById('f_schedEnd').value = a.schedEnd || sched.end;
   }
 
-  const NEEDS_TIME_FIELDS = ['On Time','Tardy ≤15 min','Tardy >15 min','Early Departure'];
+  const NEEDS_TIME_FIELDS = ['On Time','Tardy ≤15 min','Tardy >15 min','Early Departure','Lunch Overage'];
   const toggleTimeFields = ()=>{
     const v = document.getElementById('f_violation').value;
     document.getElementById('timeFieldsGroup').style.display = NEEDS_TIME_FIELDS.includes(v) ? 'contents' : 'none';
@@ -1511,6 +1578,12 @@ function openAttendanceModal(existing, prefill){
       excuseReason: document.getElementById('f_excused').checked ? document.getElementById('f_excuseReason').value : '',
       notes: document.getElementById('f_notes').value
     };
+    if(a.lunchOverage){
+      rec.lunchOverage = true;
+      rec.lunchOverageMinutes = a.lunchOverageMinutes;
+      const excuseBox = document.getElementById('f_lunchOverageExcused');
+      rec.lunchOverageExcused = excuseBox ? excuseBox.checked : !!a.lunchOverageExcused;
+    }
     rec.points = computeAttendancePoints(rec);
     if(existing){ DB.attendance = DB.attendance.map(x=>x.id===rec.id?rec:x); } else { DB.attendance.push(rec); }
     await saveOne('attendance'); closeModal(); renderAttendance(); renderTeam(); refreshAgentSuggestions(); toast(`Saved — ${rec.points} point(s) assessed`);
@@ -1675,7 +1748,10 @@ document.getElementById('exportAttendance').onclick = ()=>{
     {label:'Clock In', get:r=>r.clockIn},{label:'Clock Out', get:r=>r.clockOut},
     {label:'Violation Type', get:r=>r.violationType},{label:'Notified Properly', get:r=>r.notifiedProperly},
     {label:'Excused', get:r=>r.excused?'Yes':'No'},{label:'Excuse Reason', get:r=>r.excuseReason},
-    {label:'Points', get:r=>r.points},{label:'Notes', get:r=>r.notes}
+    {label:'Points', get:r=>r.points},
+    {label:'Lunch Overage (min)', get:r=>r.lunchOverage ? (r.lunchOverageMinutes||0) : ''},
+    {label:'Lunch Overage Excused', get:r=>r.lunchOverage ? (r.lunchOverageExcused?'Yes':'No') : ''},
+    {label:'Notes', get:r=>r.notes}
   ]);
   downloadCSV(csv, 'gifthealth_attendance.csv'); toast('CSV downloaded');
 };
@@ -1833,6 +1909,13 @@ document.getElementById('resetIdentityBtn').onclick = async ()=>{
   toast('Device identity cleared');
 };
 const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri'];
+const DAY_KEYS = ['mon','tue','wed','thu','fri'];
+let teamPtoMonth = todayStr().slice(0,7); // 'YYYY-MM'
+function shiftMonthStr(monthStr, delta){
+  const [y,m] = monthStr.split('-').map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+}
 
 function weekDates(){ return [0,1,2,3,4].map(i=>addDays(currentWeekStart,i)); }
 
@@ -3401,6 +3484,18 @@ function openManageStaffModal(){
           <input type="checkbox" id="botaccess_${s.id}" ${s.automationAccess?'checked':''} style="width:auto;">
           <label for="botaccess_${s.id}" style="margin:0;">Can access Automation tab (without full manager access)</label>
         </div>
+        <div style="display:flex;gap:6px;align-items:center;font-size:11px;color:rgba(46,3,38,0.6);flex-wrap:wrap;">
+          <span>Hybrid:</span>
+          ${['Mon','Tue','Wed','Thu','Fri'].map(d=>`
+            <label style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+              <span style="font-size:9px;">${d}</span>
+              <select id="hyb_${d}_${s.id}" style="width:66px;font-size:10.5px;padding:3px 4px;">
+                <option value="Office" ${((s.hybridSchedule&&s.hybridSchedule[d])||'Office')==='Office'?'selected':''}>Office</option>
+                <option value="Remote" ${(s.hybridSchedule&&s.hybridSchedule[d])==='Remote'?'selected':''}>Remote</option>
+                <option value="Off" ${(s.hybridSchedule&&s.hybridSchedule[d])==='Off'?'selected':''}>Off</option>
+              </select>
+            </label>`).join('')}
+        </div>
       </div>`).join('');
   };
   renderList();
@@ -3459,6 +3554,13 @@ async function renameStaff(id){
   s.schedStart = document.getElementById('schedstart_'+id).value;
   s.schedEnd = document.getElementById('schedend_'+id).value;
   s.automationAccess = document.getElementById('botaccess_'+id).checked;
+  s.hybridSchedule = {
+    Mon: document.getElementById('hyb_Mon_'+id).value,
+    Tue: document.getElementById('hyb_Tue_'+id).value,
+    Wed: document.getElementById('hyb_Wed_'+id).value,
+    Thu: document.getElementById('hyb_Thu_'+id).value,
+    Fri: document.getElementById('hyb_Fri_'+id).value
+  };
   await saveOne('staff');
   refreshAgentSuggestions();
   renderTeam();
@@ -3612,6 +3714,105 @@ function renderTaskMatrix(range, agents){
   table.innerHTML = thead + rows;
 }
 
+/* ---------------- hybrid schedule (recurring weekly Office/Remote pattern) ---------------- */
+function getHybridPattern(staffName){
+  const s = DB.staff.find(x=>x.name===staffName);
+  const base = {mon:'Office',tue:'Office',wed:'Office',thu:'Office',fri:'Office'};
+  return Object.assign(base, (s && s.hybridPattern) || {});
+}
+function renderHybridSchedule(selectedStaff){
+  const allAgents = DB.staff.map(s=>s.name).sort();
+  const agents = selectedStaff ? allAgents.filter(a=>a===selectedStaff) : allAgents;
+  const table = document.getElementById('hybridScheduleTable');
+  if(agents.length===0){
+    table.innerHTML = `<tr><td><div class="empty">No staff on the roster yet. Use "Manage staff" in Daily Tasks to add some.</div></td></tr>`;
+    return;
+  }
+  let thead = '<tr><th class="task-col">Staff</th>' + DAY_NAMES.map(d=>`<th style="background:var(--beige);color:rgba(46,3,38,0.7);font-size:11px;padding:8px 4px;">${d}</th>`).join('') + '</tr>';
+  let rows = agents.map(name=>{
+    let row = `<tr><td class="task-col"><b>${name}</b></td>`;
+    const pattern = getHybridPattern(name);
+    DAY_KEYS.forEach(key=>{
+      const val = pattern[key] || 'Office';
+      const cls = val==='Remote' ? 'b-na' : 'b-ok';
+      const icon = val==='Remote' ? '🏠' : '🏢';
+      row += `<td style="text-align:center;padding:6px;"><button class="badge ${cls}" style="border:none;cursor:pointer;" onclick="toggleHybridDay('${escAttr(name)}','${key}')" title="Click to toggle Office/Remote">${icon} ${val}</button></td>`;
+    });
+    row += '</tr>';
+    return row;
+  }).join('');
+  table.innerHTML = thead + rows;
+}
+async function toggleHybridDay(name, key){
+  const s = DB.staff.find(x=>x.name===name); if(!s) return;
+  if(!s.hybridPattern) s.hybridPattern = {mon:'Office',tue:'Office',wed:'Office',thu:'Office',fri:'Office'};
+  s.hybridPattern[key] = s.hybridPattern[key]==='Remote' ? 'Office' : 'Remote';
+  await saveOne('staff');
+  renderHybridSchedule(document.getElementById('teamMasterFilter').value);
+}
+window.toggleHybridDay = toggleHybridDay;
+
+/* ---------------- team PTO calendar (everyone's approved time off at once) ---------------- */
+function renderTeamPtoCalendar(selectedStaff){
+  const [y,m] = teamPtoMonth.split('-').map(Number);
+  const first = new Date(y, m-1, 1);
+  document.getElementById('teamPtoMonthLabel').textContent = first.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  const startDow = first.getDay();
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const dowLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let html = dowLabels.map(d=>`<div class="cal-dow">${d}</div>`).join('');
+  for(let i=0;i<startDow;i++){ html += `<div class="cal-day empty"></div>`; }
+  for(let day=1; day<=daysInMonth; day++){
+    const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const holiday = DB.holidays.find(h=>h.date===dateStr);
+    const entries = DB.attendance.filter(a=>a.date===dateStr && a.excused && a.excuseReason!=='Holiday' && (!selectedStaff || a.staff===selectedStaff));
+    const isToday = dateStr===todayStr() ? ' today' : '';
+    let chips = '';
+    if(holiday && (!selectedStaff)) chips += `<span class="pto-chip" style="background:#F6AFFF;color:#440B39;">🎉 ${holiday.label}</span>`;
+    const shown = entries.slice(0,3);
+    shown.forEach(e=>{ chips += `<span class="pto-chip" style="background:#EAFDFF;color:#1a6b78;" title="${escAttr(e.excuseReason||'Excused')}">${e.staff}</span>`; });
+    if(entries.length>3) chips += `<span class="pto-chip" style="background:#eee;color:#777;">+${entries.length-3} more</span>`;
+    html += `<div class="cal-day pto-cell${isToday}" onclick="openTeamPtoDayModal('${dateStr}')">
+      <span class="cal-daynum">${day}</span>
+      <div style="display:flex;flex-direction:column;gap:2px;width:100%;">${chips}</div>
+    </div>`;
+  }
+  document.getElementById('teamPtoCalGrid').innerHTML = html;
+}
+function openTeamPtoDayModal(dateStr){
+  const holiday = DB.holidays.find(h=>h.date===dateStr);
+  const entries = DB.attendance.filter(a=>a.date===dateStr && a.excused && a.excuseReason!=='Holiday');
+  const rows = entries.map(e=>`
+    <div class="card" style="padding:8px 10px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+      <div><b>${e.staff}</b><div style="font-size:11px;color:rgba(46,3,38,0.55);">${e.excuseReason||'Excused'}</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal();openAttendanceModal(DB.attendance.find(x=>x.id==='${e.id}'))">Edit</button>
+    </div>`).join('');
+  modalBody.innerHTML = `
+    <h3>${fmtDate(dateStr)}</h3>
+    ${holiday ? `<p style="font-size:12.5px;color:rgba(46,3,38,0.6);margin:-6px 0 12px;">🎉 Company holiday: ${holiday.label}</p>` : ''}
+    <div style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;margin-bottom:14px;">
+      ${rows || '<div class="empty">No time off logged for this day.</div>'}
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+      <button class="btn btn-primary" id="addPtoForDayBtn">+ Log PTO for this day</button>
+    </div>`;
+  overlay.classList.add('active');
+  document.getElementById('addPtoForDayBtn').onclick = ()=>{
+    closeModal();
+    openAttendanceModal(null, {
+      id:null, date:dateStr, staff:'',
+      schedStart:'', schedEnd:'', scheduleOverride:false, clockIn:'', clockOut:'',
+      violationType:'Absence', notifiedProperly:'N/A', excused:true, excuseReason:'PTO with prior approval',
+      notes:'', _title:`Log PTO — ${fmtDate(dateStr)}`
+    });
+  };
+}
+window.openTeamPtoDayModal = openTeamPtoDayModal;
+document.getElementById('teamPtoPrevMonth').onclick = ()=>{ teamPtoMonth = shiftMonthStr(teamPtoMonth,-1); renderTeamPtoCalendar(document.getElementById('teamMasterFilter').value); };
+document.getElementById('teamPtoNextMonth').onclick = ()=>{ teamPtoMonth = shiftMonthStr(teamPtoMonth,1); renderTeamPtoCalendar(document.getElementById('teamMasterFilter').value); };
+document.getElementById('teamPtoThisMonth').onclick = ()=>{ teamPtoMonth = todayStr().slice(0,7); renderTeamPtoCalendar(document.getElementById('teamMasterFilter').value); };
+
 function renderTeam(){
   const range = periodRange(dashPeriod);
   const baseline = baselineRange(dashPeriod);
@@ -3628,6 +3829,9 @@ function renderTeam(){
   masterSel.innerHTML = `<option value="">All staff</option>` + allAgents.map(a=>`<option value="${a}" ${a===masterPrev?'selected':''}>${a}</option>`).join('');
   const selectedStaff = masterSel.value;
   const agents = selectedStaff ? allAgents.filter(a=>a===selectedStaff) : allAgents;
+
+  renderHybridSchedule(selectedStaff);
+  renderTeamPtoCalendar(selectedStaff);
 
   document.getElementById('reportsOverviewTitle').innerHTML = selectedStaff
     ? `${selectedStaff}'s Overview <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· this period</span>`
@@ -3759,7 +3963,9 @@ function renderPersonal(agent){
 document.getElementById('teamMasterFilter').onchange = renderTeam;
 
 function renderCompletionLog(selectedStaff){
-  const range = periodRange(dashPeriod);
+  const fromV = document.getElementById('completionDateFrom').value || todayStr();
+  const toV = document.getElementById('completionDateTo').value || todayStr();
+  const range = { start: fromV, end: toV };
   const shiftF = document.getElementById('completionShiftFilter').value;
   const rows = DB.dailyTasks.filter(t=>
     inRange(t.date, range) &&
@@ -3770,18 +3976,47 @@ function renderCompletionLog(selectedStaff){
   ).sort((a,b)=> (b.date+b.completedAt).localeCompare(a.date+a.completedAt));
 
   const body = document.getElementById('completionLogBody');
-  if(rows.length===0){ body.innerHTML = `<tr><td colspan="6"><div class="empty">No completed tasks in this period yet.</div></td></tr>`; return; }
+  if(rows.length===0){ body.innerHTML = `<tr><td colspan="7"><div class="empty">No completed tasks in this date range.</div></td></tr>`; return; }
   body.innerHTML = rows.map(t=>`
     <tr>
       <td>${fmtDate(t.date)}</td>
       <td>${t.agent||'—'}</td>
       <td><span class="badge ${t.shift==='AM'?'b-na':'st-inprogress'}">${t.shift}</span></td>
       <td>${t.task}</td>
+      <td>${fmtDT(t.startedAt)}</td>
       <td>${fmtDT(t.completedAt)}</td>
       <td>${formatHrsMins(t.processingHrs)}</td>
     </tr>`).join('');
 }
 document.getElementById('completionShiftFilter').onchange = ()=>{
+  renderCompletionLog(document.getElementById('teamMasterFilter').value);
+};
+document.getElementById('completionDateFrom').onchange = ()=>{
+  renderCompletionLog(document.getElementById('teamMasterFilter').value);
+};
+document.getElementById('completionDateTo').onchange = ()=>{
+  renderCompletionLog(document.getElementById('teamMasterFilter').value);
+};
+document.getElementById('completionTodayBtn').onclick = ()=>{
+  const d = todayStr();
+  document.getElementById('completionDateFrom').value = d;
+  document.getElementById('completionDateTo').value = d;
+  renderCompletionLog(document.getElementById('teamMasterFilter').value);
+};
+document.getElementById('completionWeekBtn').onclick = ()=>{
+  const monday = getMonday(todayStr());
+  document.getElementById('completionDateFrom').value = monday;
+  document.getElementById('completionDateTo').value = addDays(monday,6);
+  renderCompletionLog(document.getElementById('teamMasterFilter').value);
+};
+document.getElementById('completionLast7Btn').onclick = ()=>{
+  document.getElementById('completionDateFrom').value = addDays(todayStr(),-6);
+  document.getElementById('completionDateTo').value = todayStr();
+  renderCompletionLog(document.getElementById('teamMasterFilter').value);
+};
+document.getElementById('completionAllBtn').onclick = ()=>{
+  document.getElementById('completionDateFrom').value = '2000-01-01';
+  document.getElementById('completionDateTo').value = '2099-12-31';
   renderCompletionLog(document.getElementById('teamMasterFilter').value);
 };
 
@@ -4221,6 +4456,8 @@ document.getElementById('resetBtn').onclick = async ()=>{
     document.getElementById('taskDateFilter').value = todayStr();
     document.getElementById('lunchDateFilter').value = todayStr();
     document.getElementById('attendanceDateFilter').value = todayStr();
+    document.getElementById('completionDateFrom').value = todayStr();
+    document.getElementById('completionDateTo').value = todayStr();
     await loadAll();
     refreshAgentSuggestions();
     try{
