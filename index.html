@@ -672,8 +672,9 @@
         </div></div>
 
         <div class="panel-head">
-          <h2>Completion Log <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· AM vs. PM, any date range</span></h2>
+          <h2>Completion Log <span style="font-weight:400;font-size:12px;color:rgba(46,3,38,0.55);">· sorted by start time — a timeline of the day's flow, with gaps flagged</span></h2>
           <div class="filters">
+            <select id="completionStaffFilter"><option value="">All staff</option></select>
             <select id="completionShiftFilter"><option value="">AM &amp; PM</option><option>AM</option><option>PM</option></select>
             <input type="date" id="completionDateFrom">
             <span style="font-size:11px;color:rgba(46,3,38,0.5);align-self:center;">to</span>
@@ -686,7 +687,7 @@
         </div>
         <div class="table-wrap" style="margin-bottom:22px;"><div class="table-scroll">
           <table>
-            <thead><tr><th>Date</th><th>Staff</th><th>Shift</th><th>Task</th><th>Started at</th><th>Completed at</th><th>Processing time</th></tr></thead>
+            <thead><tr><th>Date</th><th>Staff</th><th>Shift</th><th>Task</th><th>Gap before</th><th>Started at</th><th>Completed at</th><th>Processing time</th></tr></thead>
             <tbody id="completionLogBody"></tbody>
           </table>
         </div></div>
@@ -3905,7 +3906,7 @@ function renderTeam(){
   }
 
   renderPersonal(selectedStaff);
-  renderCompletionLog(selectedStaff);
+  renderCompletionLog();
   renderMetrics(selectedStaff);
 }
 
@@ -3962,62 +3963,83 @@ function renderPersonal(agent){
 }
 document.getElementById('teamMasterFilter').onchange = renderTeam;
 
-function renderCompletionLog(selectedStaff){
+function renderCompletionLog(){
   const fromV = document.getElementById('completionDateFrom').value || todayStr();
   const toV = document.getElementById('completionDateTo').value || todayStr();
   const range = { start: fromV, end: toV };
   const shiftF = document.getElementById('completionShiftFilter').value;
+
+  const staffSel = document.getElementById('completionStaffFilter');
+  const prevStaffVal = staffSel.value;
+  const allAgents = [...new Set([...DB.staff.map(s=>s.name), ...DB.dailyTasks.map(t=>t.agent)].filter(Boolean))].sort();
+  staffSel.innerHTML = `<option value="">All staff</option>` + allAgents.map(a=>`<option value="${escAttr(a)}" ${a===prevStaffVal?'selected':''}>${a}</option>`).join('');
+  const staffF = staffSel.value;
+
   const rows = DB.dailyTasks.filter(t=>
     inRange(t.date, range) &&
     t.status==='Completed' &&
     t.completedAt &&
-    (!selectedStaff || t.agent===selectedStaff) &&
+    (!staffF || t.agent===staffF) &&
     (!shiftF || t.shift===shiftF)
-  ).sort((a,b)=> (b.date+b.completedAt).localeCompare(a.date+a.completedAt));
+  ).sort((a,b)=> (a.date+(a.startedAt||a.completedAt)).localeCompare(b.date+(b.startedAt||b.completedAt)));
 
   const body = document.getElementById('completionLogBody');
-  if(rows.length===0){ body.innerHTML = `<tr><td colspan="7"><div class="empty">No completed tasks in this date range.</div></td></tr>`; return; }
-  body.innerHTML = rows.map(t=>`
+  if(rows.length===0){ body.innerHTML = `<tr><td colspan="8"><div class="empty">No completed tasks in this date range.</div></td></tr>`; return; }
+
+  const lastEndByStaff = {};
+  body.innerHTML = rows.map(t=>{
+    let gapHTML = '<span style="color:rgba(46,3,38,0.3);">—</span>';
+    const prevEnd = lastEndByStaff[t.agent];
+    if(prevEnd && t.startedAt){
+      const startMs = new Date(t.startedAt.length<=16?t.startedAt+':00':t.startedAt).getTime();
+      const prevMs = new Date(prevEnd.length<=16?prevEnd+':00':prevEnd).getTime();
+      const gapMin = Math.round((startMs - prevMs)/60000);
+      if(gapMin > 5){
+        const cls = gapMin>60?'b-spike':gapMin>30?'b-open':'b-na';
+        gapHTML = `<span class="badge ${cls}">⏱ ${formatHrsMins(gapMin/60)}</span>`;
+      } else {
+        gapHTML = `<span class="badge b-ok">Back-to-back</span>`;
+      }
+    }
+    if(t.agent) lastEndByStaff[t.agent] = t.completedAt || t.startedAt;
+    return `
     <tr>
       <td>${fmtDate(t.date)}</td>
       <td>${t.agent||'—'}</td>
       <td><span class="badge ${t.shift==='AM'?'b-na':'st-inprogress'}">${t.shift}</span></td>
       <td>${t.task}</td>
+      <td>${gapHTML}</td>
       <td>${fmtDT(t.startedAt)}</td>
       <td>${fmtDT(t.completedAt)}</td>
       <td>${formatHrsMins(t.processingHrs)}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
-document.getElementById('completionShiftFilter').onchange = ()=>{
-  renderCompletionLog(document.getElementById('teamMasterFilter').value);
-};
-document.getElementById('completionDateFrom').onchange = ()=>{
-  renderCompletionLog(document.getElementById('teamMasterFilter').value);
-};
-document.getElementById('completionDateTo').onchange = ()=>{
-  renderCompletionLog(document.getElementById('teamMasterFilter').value);
-};
+document.getElementById('completionStaffFilter').onchange = renderCompletionLog;
+document.getElementById('completionShiftFilter').onchange = renderCompletionLog;
+document.getElementById('completionDateFrom').onchange = renderCompletionLog;
+document.getElementById('completionDateTo').onchange = renderCompletionLog;
 document.getElementById('completionTodayBtn').onclick = ()=>{
   const d = todayStr();
   document.getElementById('completionDateFrom').value = d;
   document.getElementById('completionDateTo').value = d;
-  renderCompletionLog(document.getElementById('teamMasterFilter').value);
+  renderCompletionLog();
 };
 document.getElementById('completionWeekBtn').onclick = ()=>{
   const monday = getMonday(todayStr());
   document.getElementById('completionDateFrom').value = monday;
   document.getElementById('completionDateTo').value = addDays(monday,6);
-  renderCompletionLog(document.getElementById('teamMasterFilter').value);
+  renderCompletionLog();
 };
 document.getElementById('completionLast7Btn').onclick = ()=>{
   document.getElementById('completionDateFrom').value = addDays(todayStr(),-6);
   document.getElementById('completionDateTo').value = todayStr();
-  renderCompletionLog(document.getElementById('teamMasterFilter').value);
+  renderCompletionLog();
 };
 document.getElementById('completionAllBtn').onclick = ()=>{
   document.getElementById('completionDateFrom').value = '2000-01-01';
   document.getElementById('completionDateTo').value = '2099-12-31';
-  renderCompletionLog(document.getElementById('teamMasterFilter').value);
+  renderCompletionLog();
 };
 
 /* ---------------- metrics: performance alerts + coaching notes ---------------- */
